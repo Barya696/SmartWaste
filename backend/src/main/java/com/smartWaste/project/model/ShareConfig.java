@@ -1,0 +1,46 @@
+package com.smartWaste.project.model;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "share_config")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ShareConfig {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "share_name", nullable = false, unique = true, length = 100)
+    private String shareName; // "Citizen", "Collector", "System"
+
+    @Column(name = "percentage", nullable = false)
+    private Double percentage;
+
+    @Column(name = "updated_by")
+    private Long updatedBy;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+}

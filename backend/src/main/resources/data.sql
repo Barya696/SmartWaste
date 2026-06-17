@@ -1,0 +1,3 @@
+-- Database seeding is now handled by DatabaseInitializer.java
+-- This file is kept for reference but seeds are applied programmatically
+-- See: src/main/java/com/smartWaste/project/config/DatabaseInitializer.java
