@@ -7,8 +7,6 @@
 
 - 📫 How to reach me **baryaelimelec@gmail.com**
 
-- ⚡ Fun fact **I am a Network Engineer that loves both coding and configuring routers 😂😂😂**
-
 ---
 
 ## 🌍 SmartWaste Overview
