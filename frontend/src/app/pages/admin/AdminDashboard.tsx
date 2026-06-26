@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router";
 import {
   AreaChart,
   Area,
@@ -222,18 +223,6 @@ const gauges: GaugeItem[] = [
     spark: sparkResponse,
     sc: "#378add",
   },
-  {
-    label: "CO₂ Reduced",
-    sub: "Tonnes/month",
-    val: 89,
-    color: "#ff6b9d",
-    badges: [
-      { t: "8.5t", c: "#ff6b9d" },
-      { t: "+15%", c: "#1cb97a" },
-    ],
-    spark: sparkCollected,
-    sc: "#ff6b9d",
-  },
 ];
 
 const headerStats: HeaderStat[] = [
@@ -377,8 +366,12 @@ function MiniBarChart({ values, color }: MiniBarChartProps) {
 
 /* ── Main export ── */
 export function AdminDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [liveFeedTab, setLiveFeedTab] = useState<"reports" | "districts">(
+    "reports",
+  );
 
   useEffect(() => {
     AdminService.getDashboardStats()
@@ -461,7 +454,6 @@ export function AdminDashboard() {
           ),
         },
         gauges[2],
-        gauges[3],
       ]
     : gauges;
 
@@ -507,6 +499,50 @@ export function AdminDashboard() {
         },
       ]
     : health;
+
+  const exportDashboardPdf = () => {
+    const rows = progressItemsLive
+      .map(
+        (d) =>
+          `<tr><td>${d.name}</td><td>${d.val}</td><td>${d.pct}%</td></tr>`,
+      )
+      .join("");
+    const activityRows = activityLive
+      .map(
+        (a) =>
+          `<tr><td>${a.action}</td><td>${a.actor}</td><td>${a.time}</td><td>${a.status}</td></tr>`,
+      )
+      .join("");
+    const html = `<!DOCTYPE html><html><head><title>SmartWaste Dashboard Report</title>
+      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1a1e25}
+      h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px}
+      table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px}
+      th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f0f2f5}
+      </style></head><body>
+      <h1>SmartWaste Admin Dashboard</h1>
+      <p>Generated ${new Date().toLocaleString()}</p>
+      <h2>Summary</h2>
+      <ul>${liveStatsLive.map((s) => `<li><strong>${s.label}:</strong> ${s.val}</li>`).join("")}</ul>
+      <h2>District Performance</h2>
+      <table><thead><tr><th>District</th><th>Rate</th><th>Progress</th></tr></thead><tbody>${rows}</tbody></table>
+      <h2>Recent Activity</h2>
+      <table><thead><tr><th>Action</th><th>Actor</th><th>Time</th><th>Status</th></tr></thead><tbody>${activityRows}</tbody></table>
+      </body></html>`;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  const viewDistrictMap = () => {
+    window.open(
+      "https://www.openstreetmap.org/#map=12/-4.2634/15.2429",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
 
   return (
     <AdminMobileBlock>
@@ -794,32 +830,45 @@ export function AdminDashboard() {
                 </svg>
               </div>
               <div style={{ display: "flex" }}>
-                {["Waste Reports", "Districts"].map(
-                  (t: string, i: number) => (
-                    <div
-                      key={t}
+                {(
+                  [
+                    { id: "reports" as const, label: "Waste Reports" },
+                    { id: "districts" as const, label: "Districts" },
+                  ]
+                ).map((tab) => (
+                    <button
+                      type="button"
+                      key={tab.id}
+                      onClick={() => setLiveFeedTab(tab.id)}
                       style={{
                         fontSize: 11,
                         fontWeight: 600,
                         padding: "4px 14px",
                         cursor: "pointer",
-                        color: i === 0 ? "#7c6be8" : "#9a9ab0",
+                        color:
+                          liveFeedTab === tab.id ? "#7c6be8" : "#9a9ab0",
                         borderBottom:
-                          i === 0
+                          liveFeedTab === tab.id
                             ? "2px solid #7c6be8"
                             : "2px solid transparent",
+                        background: "none",
+                        borderTop: "none",
+                        borderLeft: "none",
+                        borderRight: "none",
+                        fontFamily: "inherit",
                       }}
                     >
-                      {t}
-                    </div>
-                  ),
-                )}
+                      {tab.label}
+                    </button>
+                  ))}
               </div>
             </div>
           </div>
 
           <div className="so-livefeed-body">
             <div className="so-livefeed-left">
+              {liveFeedTab === "reports" ? (
+                <>
               <div className="so-lf-meta">
                 {liveStatsLive.map((s) => (
                   <div key={s.label}>
@@ -906,6 +955,69 @@ export function AdminDashboard() {
                   ),
                 )}
               </div>
+                </>
+              ) : (
+                <div style={{ padding: "12px 16px" }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "#8a9099",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      marginBottom: 12,
+                    }}
+                  >
+                    District completion rates
+                  </div>
+                  {progressItemsLive.length === 0 ? (
+                    <p style={{ fontSize: 12, color: "#aab0bb", margin: 0 }}>
+                      No district data yet.
+                    </p>
+                  ) : (
+                    progressItemsLive.map((d) => (
+                      <div key={d.name} style={{ marginBottom: 14 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            marginBottom: 6,
+                          }}
+                        >
+                          <span>{d.name}</span>
+                          <span>{d.val}</span>
+                        </div>
+                        <div
+                          style={{
+                            height: 6,
+                            background: "#f0f1f3",
+                            borderRadius: 3,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${d.pct}%`,
+                              height: "100%",
+                              background: d.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <button
+                    type="button"
+                    className="so-action-btn"
+                    style={{ marginTop: 8, width: "100%" }}
+                    onClick={() => navigate("/dashboard/admin/districts")}
+                  >
+                    Manage Districts
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="so-livefeed-right">
@@ -939,10 +1051,18 @@ export function AdminDashboard() {
                 ))}
               </div>
               <div className="so-action-btn-row">
-                <button className="so-action-btn">
+                <button
+                  type="button"
+                  className="so-action-btn"
+                  onClick={exportDashboardPdf}
+                >
                   Export PDF
                 </button>
-                <button className="so-action-btn">
+                <button
+                  type="button"
+                  className="so-action-btn"
+                  onClick={viewDistrictMap}
+                >
                   View Map
                 </button>
               </div>

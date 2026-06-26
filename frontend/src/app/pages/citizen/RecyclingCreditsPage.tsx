@@ -13,7 +13,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import {
   CompensationService,
-  type CollectorCreditRow,
+  type CitizenCreditRow,
 } from "../../../services/compensationService";
 
 type ViewFilter = "all" | "compensated" | "pending";
@@ -30,7 +30,7 @@ export function RecyclingCreditsPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ViewFilter>("all");
-  const [rows, setRows] = useState<CollectorCreditRow[]>([]);
+  const [rows, setRows] = useState<CitizenCreditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +44,7 @@ export function RecyclingCreditsPage() {
       try {
         setLoading(true);
         setError(null);
-        const credits = await CompensationService.getCollectorCredits(user.id);
+        const credits = await CompensationService.getCitizenCredits(user.id);
         setRows(credits);
       } catch (err) {
         console.error("Failed to load recycling credits:", err);
@@ -58,11 +58,11 @@ export function RecyclingCreditsPage() {
 
   const compensated = rows.filter((a) => a.status === "compensated");
   const totalEarned = compensated.reduce(
-    (sum, a) => sum + (a.collectorCredit ?? 0),
+    (sum, a) => sum + (a.citizenCredit ?? 0),
     0,
   );
-  const collectorPctLabel =
-    compensated.find((a) => a.collectorPct != null)?.collectorPct ?? 25;
+  const citizenPctLabel =
+    compensated.find((a) => a.citizenPct != null)?.citizenPct ?? 70;
 
   const displayed = rows
     .filter((a) => {
@@ -345,7 +345,7 @@ export function RecyclingCreditsPage() {
           <div className="rc-earned-icon" aria-hidden="true">
             <DollarSign
               size={16}
-              color="#fff"
+              color="white"
               strokeWidth={2.5}
             />
           </div>
@@ -463,7 +463,7 @@ export function RecyclingCreditsPage() {
                   fontWeight: 600,
                 }}
               >
-                No collections match your filters.
+                {search ? "No records match your search." : "No compensation records yet."}
               </p>
             </div>
           ) : (
@@ -482,7 +482,7 @@ export function RecyclingCreditsPage() {
                       { label: "Partner", cls: "" },
                       { label: "Status", cls: "" },
                       {
-                        label: `Your Credit (${collectorPctLabel}%)`,
+                        label: `Your Compensation (${citizenPctLabel}%)`,
                         cls: "num",
                       },
                       { label: "Date", cls: "" },
@@ -498,8 +498,8 @@ export function RecyclingCreditsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayed.map((a: CollectorCreditRow) => {
-                    const credit = a.collectorCredit;
+                  {displayed.map((a: CitizenCreditRow) => {
+                    const credit = a.citizenCredit;
 
                     const statusCls =
                       a.status === "compensated"

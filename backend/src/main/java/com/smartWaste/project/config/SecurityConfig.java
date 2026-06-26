@@ -2,6 +2,8 @@ package com.smartWaste.project.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -9,6 +11,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.cors.CorsConfiguration;
@@ -49,10 +52,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/assign-partner/**").authenticated()   // ← add
                 .requestMatchers("/api/compensations/**").authenticated()    // ← add
                 .requestMatchers("/api/receipts/**").authenticated()
-                .requestMatchers("/api/material-prices/**").authenticated()  // ← add
-                .requestMatchers("/api/tax-config/**").authenticated()       // ← add
-                .requestMatchers("/api/share-config/**").authenticated()     // ← add
-                .requestMatchers("/api/badge-config/**").authenticated()     // ← add
+                .requestMatchers("/api/material-prices/**").authenticated()
+                .requestMatchers("/api/waste-categories/**").authenticated()
+                .requestMatchers("/api/tax-config/**").authenticated()
+                .requestMatchers("/api/share-config/**").authenticated()
+                .requestMatchers("/api/badge-config/**").authenticated()
+                .requestMatchers("/api/notification-settings/**").authenticated()
+                .requestMatchers("/api/role-permissions/**").authenticated()
                 .requestMatchers("/api/notifications/**").authenticated()
                 .anyRequest().authenticated()
             )
@@ -61,9 +67,20 @@ public class SecurityConfig {
                 .sessionFixation(sessionFixation -> sessionFixation.migrateSession())
             )
             .httpBasic(basic -> basic.disable())
-            .formLogin(form -> form.disable());
+            .formLogin(form -> form.disable())
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint(unauthorizedEntryPoint())
+            );
         
         return http.build();
+    }
+
+    private AuthenticationEntryPoint unauthorizedEntryPoint() {
+        return (request, response, authException) -> {
+            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.getWriter().write("{\"message\":\"Not authenticated\"}");
+        };
     }
     
     @Bean

@@ -51,16 +51,23 @@ public class MaterialPriceController {
                 return ResponseEntity.ok(DEFAULT_PRICES);
             }
 
-            // Build map from DB rows
+            // Build map from active DB rows
             Map<String, Double> priceMap = new HashMap<>();
             for (MaterialPrice mp : rows) {
-                priceMap.put(mp.getMaterialName(), mp.getPricePerKg());
+                if (Boolean.TRUE.equals(mp.getActive())) {
+                    priceMap.put(mp.getMaterialName(), mp.getPricePerKg());
+                }
             }
 
-            // Fill in any missing materials with defaults
-            DEFAULT_PRICES.forEach((mat, price) ->
-                priceMap.putIfAbsent(mat, price)
-            );
+            // Fill in defaults unless explicitly deactivated in DB
+            DEFAULT_PRICES.forEach((mat, price) -> {
+                boolean deactivated = rows.stream().anyMatch(
+                        r -> mat.equals(r.getMaterialName())
+                                && !Boolean.TRUE.equals(r.getActive()));
+                if (!deactivated) {
+                    priceMap.putIfAbsent(mat, price);
+                }
+            });
 
             return ResponseEntity.ok(priceMap);
         } catch (Exception e) {
@@ -72,26 +79,28 @@ public class MaterialPriceController {
     /**
      * POST /api/material-prices
      * Body: { "Plastic": 500, "Metal": 600, ... }
-     * Upserts one row per material.
+     * Performs a full sync: upserts all materials in the payload and deactivates
+     * any existing DB rows whose names are NOT present in the payload.
      */
     @PostMapping
     public ResponseEntity<?> savePrices(
             @RequestBody Map<String, Double> prices,
             Authentication auth) {
         try {
-            Long supervisorId = null;
+            Long userId = null;
             if (auth != null && auth.isAuthenticated()) {
                 Optional<Users> user = usersRepository.findByEmail(auth.getName());
                 if (user.isPresent()) {
-                    supervisorId = user.get().getId();
+                    userId = user.get().getId();
                 }
             }
 
+            // Upsert each material in the payload
             for (Map.Entry<String, Double> entry : prices.entrySet()) {
                 String materialName = entry.getKey();
                 Double pricePerKg = entry.getValue();
 
-                if (pricePerKg == null || pricePerKg < 0) {
+                if (materialName == null || materialName.isBlank() || pricePerKg == null || pricePerKg < 0) {
                     continue;
                 }
 
@@ -99,18 +108,29 @@ public class MaterialPriceController {
                         .findByMaterialName(materialName);
 
                 if (existing.isPresent()) {
-                    // Update existing row
                     MaterialPrice mp = existing.get();
                     mp.setPricePerKg(pricePerKg);
-                    mp.setUpdatedBy(supervisorId);
+                    mp.setActive(true);
+                    mp.setUpdatedBy(userId);
                     materialPriceRepository.save(mp);
                 } else {
-                    // Insert new row
                     MaterialPrice mp = new MaterialPrice();
                     mp.setMaterialName(materialName);
                     mp.setPricePerKg(pricePerKg);
-                    mp.setUpdatedBy(supervisorId);
+                    mp.setActive(true);
+                    mp.setUpdatedBy(userId);
                     materialPriceRepository.save(mp);
+                }
+            }
+
+            // Deactivate any DB rows that were NOT included in the payload
+            // (handles the case where a category was removed via the UI and then saved)
+            List<MaterialPrice> allRows = materialPriceRepository.findAll();
+            for (MaterialPrice row : allRows) {
+                if (!prices.containsKey(row.getMaterialName()) && Boolean.TRUE.equals(row.getActive())) {
+                    row.setActive(false);
+                    row.setUpdatedBy(userId);
+                    materialPriceRepository.save(row);
                 }
             }
 
@@ -118,6 +138,37 @@ public class MaterialPriceController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "Error saving material prices: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * DELETE /api/material-prices?name=Plastic
+     */
+    @DeleteMapping
+    public ResponseEntity<?> deletePrice(@RequestParam String name) {
+        try {
+            if (name == null || name.isBlank()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("message", "Material name is required"));
+            }
+
+            Optional<MaterialPrice> existing = materialPriceRepository.findByMaterialName(name);
+            if (existing.isPresent()) {
+                MaterialPrice mp = existing.get();
+                mp.setActive(false);
+                materialPriceRepository.save(mp);
+            } else {
+                MaterialPrice mp = new MaterialPrice();
+                mp.setMaterialName(name);
+                mp.setPricePerKg(DEFAULT_PRICES.getOrDefault(name, 0.0));
+                mp.setActive(false);
+                materialPriceRepository.save(mp);
+            }
+
+            return ResponseEntity.ok(Map.of("message", "Material price deleted successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Error deleting material price: " + e.getMessage()));
         }
     }
 }

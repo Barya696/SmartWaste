@@ -145,6 +145,34 @@ public class ReportWasteController {
     }
 
     /**
+     * Update a pending report (citizen only).
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateReport(
+            @PathVariable Long id,
+            @RequestBody ReportWasteRequest request,
+            Authentication auth) {
+        try {
+            Long userId = resolveUserId(auth);
+            if (userId == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ErrorResponse("Not authenticated"));
+            }
+            ReportWaste report = reportWasteService.updateReport(id, userId, request);
+            return ResponseEntity.ok(report);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ErrorResponse(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Failed to update report: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Update report status
      */
     @PutMapping("/{id}/status")
@@ -161,16 +189,27 @@ public class ReportWasteController {
     }
     
     /**
-     * Delete report
+     * Delete a pending report (citizen only).
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteReport(@PathVariable Long id) {
+    public ResponseEntity<?> deleteReport(@PathVariable Long id, Authentication auth) {
         try {
-            reportWasteService.deleteReport(id);
+            Long userId = resolveUserId(auth);
+            if (userId == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ErrorResponse("Not authenticated"));
+            }
+            reportWasteService.deleteReport(id, userId);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ErrorResponse(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Failed to delete report: " + e.getMessage()));
         }
     }
     

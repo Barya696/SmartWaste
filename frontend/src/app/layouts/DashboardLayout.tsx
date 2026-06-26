@@ -19,8 +19,8 @@ export function DashboardLayout() {
     document.documentElement.classList.toggle('dark');
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/');
   };
 
@@ -45,6 +45,7 @@ export function DashboardLayout() {
           { path: '/dashboard/admin/containers', label: 'Containers', icon: Package },
           { path: '/dashboard/admin/partners', label: 'Partners', icon: Building2 },
           { path: '/dashboard/admin/recycling', label: 'Recycling', icon: Recycle },
+          { path: '/dashboard/admin/audit', label: 'Audit', icon: FileText },
           { path: '/dashboard/admin/analytics', label: 'Analytics', icon: BarChart3 },
           { path: '/dashboard/admin/users', label: 'Users', icon: Users }
         ];

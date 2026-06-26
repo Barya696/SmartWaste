@@ -142,11 +142,42 @@ public class ReportWasteService {
     }
     
     /**
-     * Delete report
+     * Update a pending report owned by the citizen.
      */
-    public void deleteReport(Long id) {
-        if (!reportWasteRepository.existsById(id)) {
-            throw new IllegalArgumentException("Report not found with ID: " + id);
+    public ReportWaste updateReport(Long id, Long userId, ReportWasteRequest request) {
+        ReportWaste report = getReportById(id);
+        assertCitizenCanModifyReport(report, userId);
+        validateReportFields(request);
+
+        report.setCategory(request.getCategory().trim());
+        report.setDistrict(request.getDistrict().trim());
+        report.setLocation(request.getLocation().trim());
+        report.setDescription(request.getDescription().trim());
+        report.setQuantity(request.getQuantity().trim());
+        report.setPhotoUrl(request.getPhotoUrl());
+
+        return reportWasteRepository.save(report);
+    }
+
+    /**
+     * Delete a pending report owned by the citizen.
+     */
+    public void deleteReport(Long id, Long userId) {
+        ReportWaste report = getReportById(id);
+        assertCitizenCanModifyReport(report, userId);
+
+        List<AssignCollector> assignments = assignCollectorRepository.findByReportId(id);
+        for (AssignCollector assignment : assignments) {
+            if (assignment.getAssignmentStatus() != AssignCollector.AssignmentStatus.REJECTED) {
+                throw new IllegalStateException("Cannot delete a report with an active assignment");
+            }
+            if (compensationRepository.findByAssignmentId(assignment.getId()).isPresent()) {
+                throw new IllegalStateException("Cannot delete a report that has been compensated");
+            }
+        }
+
+        if (!assignments.isEmpty()) {
+            assignCollectorRepository.deleteAll(assignments);
         }
         reportWasteRepository.deleteById(id);
     }
@@ -234,6 +265,39 @@ public class ReportWasteService {
             throw new IllegalStateException(
                     "Resubmit is available after " + RESUBMIT_HOURS_THRESHOLD
                             + " hours. Try again in about " + hoursRemaining + " hour(s).");
+        }
+    }
+
+    private void assertCitizenCanModifyReport(ReportWaste report, Long userId) {
+        if (!report.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("You can only modify your own reports");
+        }
+        if (!"pending".equalsIgnoreCase(report.getStatus())) {
+            throw new IllegalStateException("Only pending reports can be edited or deleted");
+        }
+
+        List<AssignCollector> assignments = assignCollectorRepository.findByReportId(report.getId());
+        Optional<AssignCollector> activeAssignment = findActiveAssignment(assignments);
+        if (activeAssignment.isPresent()) {
+            throw new IllegalStateException("Cannot modify a report that has an active assignment");
+        }
+    }
+
+    private void validateReportFields(ReportWasteRequest request) {
+        if (request.getCategory() == null || request.getCategory().trim().isEmpty()) {
+            throw new IllegalArgumentException("Category is required");
+        }
+        if (request.getDistrict() == null || request.getDistrict().trim().isEmpty()) {
+            throw new IllegalArgumentException("District is required");
+        }
+        if (request.getLocation() == null || request.getLocation().trim().isEmpty()) {
+            throw new IllegalArgumentException("Location is required");
+        }
+        if (request.getDescription() == null || request.getDescription().trim().isEmpty()) {
+            throw new IllegalArgumentException("Description is required");
+        }
+        if (request.getQuantity() == null || request.getQuantity().trim().isEmpty()) {
+            throw new IllegalArgumentException("Quantity is required");
         }
     }
 }

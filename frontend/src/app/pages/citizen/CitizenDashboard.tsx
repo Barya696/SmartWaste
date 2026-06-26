@@ -69,6 +69,7 @@ export function CitizenDashboard() {
     0,
   );
   const ecoPoints = rewards?.totalEcoPoints ?? 0;
+  const balance = totalCompensation;
   const badges = rewards?.badges ?? [];
 
   const stats = [
@@ -100,12 +101,13 @@ export function CitizenDashboard() {
       gradTo: "#f97316",
     },
     {
-      label: "Eco Points",
-      value: ecoPoints.toString(),
-      trend: rewards?.nextBadge
-        ? `${rewards.nextBadge.remaining} to ${rewards.nextBadge.name}`
-        : "All badges earned",
-      trendUp: true,
+      label: "Balance",
+      value: balance.toLocaleString("fr-CG"),
+      trend:
+        compensatedReports.length > 0
+          ? `${compensatedReports.length} payout${compensatedReports.length !== 1 ? "s" : ""}`
+          : "No payouts yet",
+      trendUp: compensatedReports.length > 0,
       icon: Coins,
       gradFrom: "#60a5fa",
       gradTo: "#3b82f6",
@@ -163,12 +165,12 @@ export function CitizenDashboard() {
     in_progress: {
       label: "In Progress",
       color: "var(--blue)",
-      bg: "rgba(26,95,168,0.10)",
+      bg: "rgba(26,99,168,0.10)",
     },
     collected: {
       label: "Collected",
       color: "var(--green)",
-      bg: "rgba(28,185,122,0.10)",
+      bg: "rgba(28,185,122,0.1)",
     },
     recycled: {
       label: "Recycled",
@@ -179,6 +181,11 @@ export function CitizenDashboard() {
       label: "Compensated",
       color: "#1d4ed8",
       bg: "rgba(29,78,216,0.10)",
+    },
+    empty: {
+      label: "Empty",
+      color: "#aab0bb",
+      bg: "rgba(170,176,187,0.10)",
     },
   };
 
@@ -732,9 +739,11 @@ export function CitizenDashboard() {
             </div>
             <div className="cd-points-banner">
               <div>
-                <div className="cd-points-value">{ecoPoints} pts</div>
+                <div className="cd-points-value">
+                  {balance.toLocaleString("fr-CG")} XAF
+                </div>
                 <div className="cd-points-label">
-                  Eco Points
+                  Balance
                 </div>
               </div>
               <div className="cd-points-hint">
@@ -743,10 +752,10 @@ export function CitizenDashboard() {
                   : badges.every((b) => b.earned)
                     ? "All badges unlocked"
                     : "Earn badges by reporting waste"}
-                {totalCompensation > 0 && (
+                {ecoPoints > 0 && (
                   <>
                     <br />
-                    {totalCompensation.toLocaleString("fr-CG")} XAF earned
+                    {ecoPoints} eco pts earned
                   </>
                 )}
               </div>

@@ -7,9 +7,9 @@ import { HomePage } from './pages/HomePage';
 import { CitizenDashboard } from './pages/citizen/CitizenDashboard';
 import { WasteReportPage } from './pages/citizen/WasteReportPage';
 import { MyReportsPage } from './pages/citizen/MyReportsPage';
+import { RecyclingCreditsPage } from './pages/citizen/RecyclingCreditsPage';
 import { CollectorDashboard } from './pages/collector/CollectorDashboard';
 import { CollectionTasksPage } from './pages/collector/CollectionTasksPage';
-import { RecyclingCreditsPage } from './pages/collector/RecyclingCreditsPage';
 // Waste Supervisor
 import { WasteSupervisorDashboard } from './pages/supervisor/waste/WasteSupervisorDashboard';
 import { TaskAssignmentPage } from './pages/supervisor/waste/TaskAssignmentPage';
@@ -22,7 +22,7 @@ import { RecyclingSupervisorProfile } from './pages/supervisor/recycling/Recycli
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminProfile } from './pages/admin/AdminProfile';
 import { UserManagementPage } from './pages/admin/UserManagementPage';
-import { ReportsManagementPage } from './pages/admin/ReportsManagementPage';
+import { AuditPage } from "./pages/admin/AuditPage";
 import { DistrictsPage } from './pages/admin/DistrictsPage';
 import { AnalyticsPage } from './pages/admin/AnalyticsPage';
 import { SystemSettingsPage } from './pages/admin/SystemSettingsPage';
@@ -77,6 +77,14 @@ export const router = createBrowserRouter([
             )
           },
           {
+            path: 'citizen/credits',
+            element: (
+              <ProtectedRoute allowedRoles={['citizen']}>
+                <RecyclingCreditsPage />
+              </ProtectedRoute>
+            )
+          },
+          {
             path: 'citizen/profile',
             element: (
               <ProtectedRoute allowedRoles={['citizen']}>
@@ -97,14 +105,6 @@ export const router = createBrowserRouter([
             element: (
               <ProtectedRoute allowedRoles={['collector']}>
                 <CollectionTasksPage />
-              </ProtectedRoute>
-            )
-          },
-          {
-            path: 'collector/credits',
-            element: (
-              <ProtectedRoute allowedRoles={['collector']}>
-                <RecyclingCreditsPage />
               </ProtectedRoute>
             )
           },
@@ -199,9 +199,13 @@ export const router = createBrowserRouter([
           },
           {
             path: 'admin/reports',
+            element: <Navigate to="/dashboard/admin/audit" replace />
+          },
+          {
+            path: 'admin/audit',
             element: (
               <ProtectedRoute allowedRoles={['administrator']}>
-                <ReportsManagementPage />
+                <AuditPage />
               </ProtectedRoute>
             )
           },

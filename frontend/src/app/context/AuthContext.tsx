@@ -23,6 +23,7 @@ interface AuthContextType {
   updateUser?: (data: Partial<User>) => Promise<void>;
   changePassword?: (currentPassword: string, newPassword: string) => Promise<void>;
   isAuthenticated: boolean;
+  isLoading: boolean;
   error: string | null;
 }
 
@@ -30,23 +31,55 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize user from localStorage on mount
-  useEffect(() => {
+  function parseStoredUser(raw: string): User | null {
     try {
-      const savedUser = localStorage.getItem('user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser) as User;
-        if (parsed?.id != null && typeof parsed.id === 'string') {
-          parsed.id = Number(parsed.id);
-        }
-        setUser(parsed);
+      const parsed = JSON.parse(raw) as User;
+      if (parsed?.id != null && typeof parsed.id === 'string') {
+        parsed.id = Number(parsed.id);
       }
-    } catch (err) {
-      console.error('Failed to restore user from localStorage:', err);
-      localStorage.removeItem('user');
+      return parsed?.id ? parsed : null;
+    } catch {
+      return null;
     }
+  }
+
+  // Restore session from backend cookie — localStorage alone is not enough
+  useEffect(() => {
+    async function restoreSession() {
+      try {
+        const response = await fetch('http://localhost:8080/api/auth/me', {
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          localStorage.removeItem('user');
+          setUser(null);
+          return;
+        }
+
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+          const parsed = parseStoredUser(savedUser);
+          if (parsed) {
+            setUser(parsed);
+            return;
+          }
+        }
+
+        setUser(null);
+      } catch (err) {
+        console.error('Failed to restore session:', err);
+        localStorage.removeItem('user');
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    restoreSession();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -145,9 +178,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      // Call backend logout endpoint
+      await fetch('http://localhost:8080/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    } finally {
+      // Always clear local state
+      setUser(null);
+      localStorage.removeItem('user');
+    }
   };
 
   const updateUser = async (data: Partial<User>) => {
@@ -228,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, updateUser, changePassword, isAuthenticated: !!user, error }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, updateUser, changePassword, isAuthenticated: !!user, isLoading, error }}>
       {children}
     </AuthContext.Provider>
   );

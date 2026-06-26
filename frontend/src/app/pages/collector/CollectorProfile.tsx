@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Landmark,
 } from "lucide-react";
+import { luhnCheck, formatCreditCard, isValidCreditCard } from "../../../utils/creditCard";
 
 export function CollectorProfile() {
   const { user, updateUser, changePassword } = useAuth();
@@ -119,12 +120,12 @@ export function CollectorProfile() {
     if (!updateUser) return;
     const bank = formData.bankAccountNumber.trim();
     if (!bank) {
-      setError("Bank account number is required.");
+      setError("Credit card number is required.");
       setTimeout(() => setError(null), 4000);
       return;
     }
-    if (bank.length < 8) {
-      setError("Bank account number must be at least 8 characters.");
+    if (!isValidCreditCard(bank)) {
+      setError("Please enter a valid credit card number.");
       setTimeout(() => setError(null), 4000);
       return;
     }
@@ -744,7 +745,7 @@ export function CollectorProfile() {
                   htmlFor="col-bank"
                 >
                   <Landmark size={11} aria-hidden="true" />
-                  Bank Account Number
+                  Bank Account Number (Credit Card)
                   <span style={{ color: "#c53030", marginLeft: 2 }}>*</span>
                 </label>
                 <input
@@ -755,10 +756,10 @@ export function CollectorProfile() {
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      bankAccountNumber: e.target.value,
+                      bankAccountNumber: formatCreditCard(e.target.value),
                     })
                   }
-                  placeholder="Enter your bank account number"
+                  placeholder="1234 5678 9012 3456"
                   required
                   autoComplete="off"
                 />
@@ -766,11 +767,11 @@ export function CollectorProfile() {
                   style={{
                     margin: "5px 0 0",
                     fontSize: 10.5,
-                    color: "#9aa0ac",
+                    color: isValidCreditCard(formData.bankAccountNumber) ? "#1cb97a" : "#9aa0ac",
                     fontWeight: 600,
                   }}
                 >
-                  Required to receive recycling credit payments.
+                  {isValidCreditCard(formData.bankAccountNumber) ? "Valid credit card number" : "Enter a valid credit card number"}
                 </p>
               </div>
             </div>

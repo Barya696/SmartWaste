@@ -145,6 +145,8 @@ export function CollectorDashboard() {
   >([]);
   const [routeStops, setRouteStops] = useState<any[]>([]);
   const [totalAssigned, setTotalAssigned] = useState(0);
+  const [totalAllTasks, setTotalAllTasks] = useState(0);
+  const [backendAssignments, setBackendAssignments] = useState<BackendAssignment[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Fetch assignments for this collector
@@ -152,7 +154,10 @@ export function CollectorDashboard() {
     async function loadData() {
       if (!user?.id) return;
       try {
-        const assignResponse = await fetch(
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Fetch ALL assignments (for total tasks and completed today)
+        const allAssignResponse = await fetch(
           `http://localhost:8080/api/assignments/collector/${user.id}`,
           {
             method: "GET",
@@ -162,8 +167,24 @@ export function CollectorDashboard() {
             credentials: "include",
           }
         );
-        if (!assignResponse.ok) return;
-        const assigns: BackendAssignment[] = await assignResponse.json();
+        if (!allAssignResponse.ok) return;
+        const allAssigns: BackendAssignment[] = await allAssignResponse.json();
+        console.log("All Assignments:", allAssigns);
+        
+        // Fetch TODAY'S assignments (for assigned tasks count)
+        const todayAssignResponse = await fetch(
+          `http://localhost:8080/api/assignments/collector/${user.id}/date/${today}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+          }
+        );
+        if (!todayAssignResponse.ok) return;
+        const todayAssigns: BackendAssignment[] = await todayAssignResponse.json();
+        console.log("Today's Assignments:", todayAssigns);
 
         const reportsResponse = await fetch("http://localhost:8080/api/reports", {
           method: "GET",
@@ -176,7 +197,7 @@ export function CollectorDashboard() {
         const reports: BackendReport[] = await reportsResponse.json();
 
         // Build urgent tasks list
-        const tasks = assigns
+        const tasks = todayAssigns
           .map((a) => {
             const report = reports.find((r) => r.id === a.reportId);
             if (!report) return null;
@@ -202,7 +223,9 @@ export function CollectorDashboard() {
 
         setUrgentTasks(tasks);
         setRouteStops(stops);
-        setTotalAssigned(assigns.length);
+        setTotalAssigned(todayAssigns.length); // Today's assigned tasks
+        setTotalAllTasks(allAssigns.length); // Total tasks ever
+        setBackendAssignments(allAssigns); // All assignments for completed today
         setLoading(false);
       } catch (error) {
         console.error("Error loading data:", error);
@@ -240,6 +263,18 @@ export function CollectorDashboard() {
     0,
   );
 
+  // Calculate completed today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const completedToday = backendAssignments.filter((a) => {
+    const updatedDate = new Date(a.updatedAt);
+    updatedDate.setHours(0, 0, 0, 0);
+    const isMatch = (a.assignmentStatus === "COMPLETED" || a.assignmentStatus === "RECYCLED") && updatedDate.getTime() === today.getTime();
+    console.log(`Checking assignment ${a.id}:`, { status: a.assignmentStatus, updatedAt: a.updatedAt, isMatch });
+    return isMatch;
+  }).length;
+  console.log("Completed Today:", completedToday);
+
   const stats: Array<{
     label: string;
     value: string;
@@ -251,25 +286,25 @@ export function CollectorDashboard() {
     {
       label: "Assigned Tasks",
       value: totalAssigned.toString(),
-      trend: "+2",
-      trendDir: "up" as const,
+      trend: `+${totalAssigned}`,
+      trendDir: totalAssigned > 0 ? ("up" as const) : ("neutral" as const),
       icon: Package,
       color: "blue",
     },
     {
       label: "Completed Today",
-      value: "5",
-      trend: "+1",
-      trendDir: "up" as const,
+      value: completedToday.toString(),
+      trend: `+${completedToday}`,
+      trendDir: completedToday > 0 ? ("up" as const) : ("neutral" as const),
       icon: CheckCircle,
       color: "green",
     },
     {
-      label: "Recycling Credits",
-      value: totalEarned > 0 ? totalEarned.toLocaleString("fr-CG") + " XAF" : "0 XAF",
-      trend: `+${compensatedForMe.length} paid`,
-      trendDir: compensatedForMe.length > 0 ? ("up" as const) : ("neutral" as const),
-      icon: DollarSign,
+      label: "Total Tasks",
+      value: totalAllTasks.toString(),
+      trend: `+${totalAllTasks}`,
+      trendDir: totalAllTasks > 0 ? ("up" as const) : ("neutral" as const),
+      icon: Package,
       color: "amber",
     },
     {
@@ -639,23 +674,11 @@ export function CollectorDashboard() {
                   ? "cd-stat-trend cd-stat-trend--down"
                   : "cd-stat-trend cd-stat-trend--neutral";
 
-            const isCredits = stat.label === "Recycling Credits";
             return (
               <div
                 className="cd-stat-card"
                 key={stat.label}
                 role="listitem"
-                onClick={
-                  isCredits
-                    ? () => navigate("/dashboard/collector/credits")
-                    : undefined
-                }
-                style={
-                  isCredits
-                    ? { cursor: "pointer", outline: "none" }
-                    : undefined
-                }
-                title={isCredits ? "View credits history" : undefined}
               >
                 <div
                   style={{
@@ -690,7 +713,7 @@ export function CollectorDashboard() {
                   </div>
                 </div>
                 <div className={trendClass}>
-                  {trendSymbol} {stat.trend}{isCredits ? "" : " today"}
+                  {trendSymbol} {stat.trend} today
                 </div>
               </div>
             );

@@ -9,6 +9,7 @@ import {
   Plus,
   Edit,
   Save,
+  X,
 } from "lucide-react";
 import { AdminMobileBlock } from "../../components/AdminMobileBlock";
 import { AdminService } from "../../../services/adminService";
@@ -31,6 +32,30 @@ interface WasteCategory {
   color: string;
   pricePerKg: number;
   active: boolean;
+}
+
+interface NotifSetting {
+  id: number;
+  settingKey: string;
+  label: string;
+  enabled: boolean;
+}
+
+interface NotifGroup {
+  category: string;
+  settings: NotifSetting[];
+}
+
+interface PermItem {
+  id: number;
+  permissionKey: string;
+  label: string;
+  enabled: boolean;
+}
+
+interface PermGroup {
+  role: string;
+  permissions: PermItem[];
 }
 
 const CATEGORY_META: Record<
@@ -64,6 +89,19 @@ export function SystemSettingsPage() {
   }>({ pointsPerCompensation: 50, badges: [] });
   const [badgesLoading, setBadgesLoading] = useState(true);
   const [badgesSaving, setBadgesSaving] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryPrice, setNewCategoryPrice] = useState("100");
+
+  // Notifications state
+  const [notifGroups, setNotifGroups] = useState<NotifGroup[]>([]);
+  const [notifLoading, setNotifLoading] = useState(true);
+  const [notifSaving, setNotifSaving] = useState(false);
+
+  // Permissions state
+  const [permGroups, setPermGroups] = useState<PermGroup[]>([]);
+  const [permLoading, setPermLoading] = useState(true);
+  const [permSaving, setPermSaving] = useState(false);
 
   const CRITERIA_OPTIONS: { value: BadgeCriteriaType; label: string }[] = [
     { value: "REPORTS_SUBMITTED", label: "Reports submitted" },
@@ -82,34 +120,121 @@ export function SystemSettingsPage() {
   }, []);
 
   useEffect(() => {
-    AdminService.getMaterialPrices()
-      .then((prices) => {
-        const cats = Object.entries(prices).map(([name, pricePerKg], i) => {
-          const meta = CATEGORY_META[name] ?? { icon: "🗑️", color: "#6b7280" };
-          return {
-            id: i + 1,
-            name,
-            icon: meta.icon,
-            color: meta.color,
-            pricePerKg,
-            active: true,
-          };
-        });
-        setWasteCategories(cats);
+    AdminService.getWasteCategories()
+      .then((cats) => {
+        setWasteCategories(
+          cats.map((c, i) => ({
+            id: c.id ?? i + 1,
+            name: c.name,
+            icon: c.icon || CATEGORY_META[c.name]?.icon || "🗑️",
+            color: c.color || CATEGORY_META[c.name]?.color || "#6b7280",
+            pricePerKg: c.pricePerKg,
+            active: c.active,
+          }))
+        );
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
+  // Load notification settings
+  useEffect(() => {
+    fetch("http://localhost:8080/api/notification-settings", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: NotifGroup[]) => setNotifGroups(data))
+      .catch(console.error)
+      .finally(() => setNotifLoading(false));
+  }, []);
+
+  // Load role permissions
+  useEffect(() => {
+    fetch("http://localhost:8080/api/role-permissions", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: PermGroup[]) => setPermGroups(data))
+      .catch(console.error)
+      .finally(() => setPermLoading(false));
+  }, []);
+
+  const handleSaveNotifications = async () => {
+    try {
+      setNotifSaving(true);
+      setSaveMessage(null);
+      const payload = notifGroups.flatMap((g) =>
+        g.settings.map((s) => ({ settingKey: s.settingKey, enabled: s.enabled }))
+      );
+      const res = await fetch("http://localhost:8080/api/notification-settings", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setSaveMessage("Notification settings saved successfully.");
+    } catch (err) {
+      setSaveMessage("Failed to save notification settings.");
+      console.error(err);
+    } finally {
+      setNotifSaving(false);
+    }
+  };
+
+  const handleSavePermissions = async () => {
+    try {
+      setPermSaving(true);
+      setSaveMessage(null);
+      const payload = permGroups.flatMap((g) =>
+        g.permissions.map((p) => ({ permissionKey: p.permissionKey, enabled: p.enabled }))
+      );
+      const res = await fetch("http://localhost:8080/api/role-permissions", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setSaveMessage("Role permissions saved successfully.");
+    } catch (err) {
+      setSaveMessage("Failed to save role permissions.");
+      console.error(err);
+    } finally {
+      setPermSaving(false);
+    }
+  };
+
+  const toggleNotifSetting = (settingKey: string, enabled: boolean) => {
+    setNotifGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        settings: g.settings.map((s) =>
+          s.settingKey === settingKey ? { ...s, enabled } : s
+        ),
+      }))
+    );
+  };
+
+  const togglePermission = (permissionKey: string, enabled: boolean) => {
+    setPermGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        permissions: g.permissions.map((p) =>
+          p.permissionKey === permissionKey ? { ...p, enabled } : p
+        ),
+      }))
+    );
+  };
+
   const handleSaveCategories = async () => {
     try {
       setSaving(true);
       setSaveMessage(null);
-      const prices = Object.fromEntries(
-        wasteCategories.map((c) => [c.name, c.pricePerKg]),
+      await AdminService.saveWasteCategories(
+        wasteCategories.map((c) => ({
+          name: c.name,
+          icon: c.icon,
+          color: c.color,
+          pricePerKg: c.pricePerKg,
+          active: c.active,
+        }))
       );
-      await AdminService.saveMaterialPrices(prices);
-      setSaveMessage("Material prices saved successfully.");
+      setSaveMessage("Waste categories saved successfully.");
     } catch (err) {
       setSaveMessage("Failed to save settings.");
       console.error(err);
@@ -134,6 +259,106 @@ export function SystemSettingsPage() {
     );
     setEditingCategory(null);
     setEditPrice("");
+  };
+
+  const handleAddCategory = async () => {
+    const name = newCategoryName.trim();
+    const price = parseFloat(newCategoryPrice);
+    if (!name) {
+      setSaveMessage("Enter a category name.");
+      return;
+    }
+    if (Number.isNaN(price) || price < 0) {
+      setSaveMessage("Enter a valid price per kg.");
+      return;
+    }
+    if (
+      wasteCategories.some(
+        (c) => c.name.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      setSaveMessage("This category already exists.");
+      return;
+    }
+
+    const meta = CATEGORY_META[name] ?? { icon: "🗑️", color: "#6b7280" };
+    const next = [
+      ...wasteCategories,
+      {
+        id: Date.now(),
+        name,
+        icon: meta.icon,
+        color: meta.color,
+        pricePerKg: price,
+        active: true,
+      },
+    ];
+    setWasteCategories(next);
+    setShowCategoryModal(false);
+    setNewCategoryName("");
+    setNewCategoryPrice("100");
+
+    try {
+      setSaving(true);
+      setSaveMessage(null);
+      await AdminService.saveWasteCategories(
+        next.map((c) => ({
+          name: c.name,
+          icon: c.icon,
+          color: c.color,
+          pricePerKg: c.pricePerKg,
+          active: c.active,
+        }))
+      );
+      setSaveMessage(`Category "${name}" added successfully.`);
+    } catch (err) {
+      setSaveMessage("Category added locally but failed to save to server.");
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteCategory = async (name: string) => {
+    if (
+      !window.confirm(
+        `Delete waste category "${name}"? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    const next = wasteCategories.filter((c) => c.name !== name);
+    setWasteCategories(next);
+
+    try {
+      setSaving(true);
+      setSaveMessage(null);
+      await AdminService.deleteWasteCategory(name);
+      setSaveMessage(`Category "${name}" deleted successfully.`);
+    } catch (err) {
+      setSaveMessage(
+        err instanceof Error ? err.message : "Failed to delete category.",
+      );
+      console.error(err);
+      // Rollback: re-fetch from server
+      AdminService.getWasteCategories()
+        .then((cats) => {
+          setWasteCategories(
+            cats.map((c, i) => ({
+              id: c.id ?? i + 1,
+              name: c.name,
+              icon: c.icon || CATEGORY_META[c.name]?.icon || "🗑️",
+              color: c.color || CATEGORY_META[c.name]?.color || "#6b7280",
+              pricePerKg: c.pricePerKg,
+              active: c.active,
+            }))
+          );
+        })
+        .catch(console.error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveBadges = async () => {
@@ -162,174 +387,8 @@ export function SystemSettingsPage() {
     }));
   };
 
-  const notificationSettings = [
-    {
-      id: 1,
-      category: "Reports",
-      settings: [
-        {
-          id: "new-report",
-          name: "New waste report submitted",
-          enabled: true,
-        },
-        {
-          id: "report-assigned",
-          name: "Report assigned to collector",
-          enabled: true,
-        },
-        {
-          id: "report-completed",
-          name: "Report marked as completed",
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 2,
-      category: "Collections",
-      settings: [
-        {
-          id: "collection-scheduled",
-          name: "Collection scheduled",
-          enabled: true,
-        },
-        {
-          id: "collection-started",
-          name: "Collection started",
-          enabled: false,
-        },
-        {
-          id: "collection-completed",
-          name: "Collection completed",
-          enabled: true,
-        },
-      ],
-    },
-    {
-      id: 3,
-      category: "System",
-      settings: [
-        {
-          id: "user-registered",
-          name: "New user registration",
-          enabled: true,
-        },
-        {
-          id: "system-alert",
-          name: "System alerts and warnings",
-          enabled: true,
-        },
-        {
-          id: "maintenance",
-          name: "Scheduled maintenance",
-          enabled: true,
-        },
-      ],
-    },
-  ];
-
-  const rolePermissions = [
-    {
-      role: "Citizen",
-      permissions: [
-        {
-          id: "submit-report",
-          name: "Submit waste reports",
-          enabled: true,
-        },
-        {
-          id: "view-reports",
-          name: "View own reports",
-          enabled: true,
-        },
-        {
-          id: "request-ecopoints",
-          name: "Request eco points",
-          enabled: true,
-        },
-        {
-          id: "view-leaderboard",
-          name: "View leaderboard",
-          enabled: true,
-        },
-      ],
-    },
-    {
-      role: "Collector",
-      permissions: [
-        {
-          id: "view-tasks",
-          name: "View assigned tasks",
-          enabled: true,
-        },
-        {
-          id: "update-status",
-          name: "Update collection status",
-          enabled: true,
-        },
-        {
-          id: "mark-complete",
-          name: "Mark tasks as completed",
-          enabled: true,
-        },
-        {
-          id: "view-routes",
-          name: "View collection routes",
-          enabled: true,
-        },
-      ],
-    },
-    {
-      role: "Supervisor",
-      permissions: [
-        {
-          id: "assign-tasks",
-          name: "Assign tasks to collectors",
-          enabled: true,
-        },
-        {
-          id: "view-district-reports",
-          name: "View district reports",
-          enabled: true,
-        },
-        {
-          id: "manage-collectors",
-          name: "Manage collector accounts",
-          enabled: true,
-        },
-        {
-          id: "override-assignments",
-          name: "Override task assignments",
-          enabled: true,
-        },
-      ],
-    },
-    {
-      role: "Administrator",
-      permissions: [
-        {
-          id: "full-access",
-          name: "Full system access",
-          enabled: true,
-        },
-        {
-          id: "user-management",
-          name: "User management",
-          enabled: true,
-        },
-        {
-          id: "system-settings",
-          name: "System settings",
-          enabled: true,
-        },
-        {
-          id: "analytics",
-          name: "View analytics",
-          enabled: true,
-        },
-      ],
-    },
-  ];
+  // notificationSettings & rolePermissions are now loaded from the DB
+  // via notifGroups and permGroups state (see useEffect hooks above)
 
   const tabs: {
     id: Tab;
@@ -661,6 +720,28 @@ export function SystemSettingsPage() {
           color: #6b7a8f;
           letter-spacing: 0.03em;
         }
+
+        .ss-modal-overlay {
+          position: fixed; inset: 0; background: rgba(10,14,20,0.5);
+          z-index: 300; display: flex; align-items: center; justify-content: center; padding: 16px;
+        }
+        .ss-modal {
+          background: #fff; border: 1px solid #dde1e7; border-radius: 10px;
+          width: 420px; max-width: 100%; box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+        }
+        .ss-modal-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 12px 16px; border-bottom: 1px solid #eef0f3; background: #f0f2f5;
+        }
+        .ss-modal-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .ss-modal-footer {
+          padding: 12px 16px; border-top: 1px solid #eef0f3;
+          display: flex; justify-content: flex-end; gap: 8px;
+        }
+        .ss-modal-input {
+          width: 100%; padding: 8px 12px; border: 1px solid #dde1e7; border-radius: 6px;
+          font-size: 13px; font-family: inherit; box-sizing: border-box; margin-top: 6px;
+        }
       `}</style>
 
       {/* Page header */}
@@ -753,7 +834,15 @@ export function SystemSettingsPage() {
                   Manage categories and quantity thresholds
                 </div>
               </div>
-              <button className="ss-btn-secondary">
+              <button
+                type="button"
+                className="ss-btn-secondary"
+                onClick={() => {
+                  setNewCategoryName("");
+                  setNewCategoryPrice("100");
+                  setShowCategoryModal(true);
+                }}
+              >
                 <Plus size={12} /> Add Category
               </button>
             </div>
@@ -855,7 +944,10 @@ export function SystemSettingsPage() {
                       </span>
                     </label>
                     <button
-                      className={`ss-icon-btn ss-icon-btn-danger`}
+                      type="button"
+                      className="ss-icon-btn ss-icon-btn-danger"
+                      onClick={() => handleDeleteCategory(cat.name)}
+                      aria-label={`Delete ${cat.name}`}
                     >
                       <Trash2 size={11} color="#b91c1c" />
                     </button>
@@ -1066,65 +1158,36 @@ export function SystemSettingsPage() {
         {/* ── Notifications ── */}
         {activeTab === "notifications" && (
           <>
-            {notificationSettings.map((group) => (
-              <div className="ss-notif-group" key={group.id}>
-                <div className="ss-notif-header">
-                  {group.category}
-                </div>
-                {group.settings.map((setting) => (
-                  <div
-                    className="ss-notif-row"
-                    key={setting.id}
-                  >
-                    <span
-                      style={{
-                        fontSize: 12.5,
-                        fontWeight: 600,
-                        color: "#1a1e25",
-                      }}
-                    >
-                      {setting.name}
-                    </span>
-                    <label className="ss-toggle">
-                      <input
-                        type="checkbox"
-                        defaultChecked={setting.enabled}
-                      />
-                      <div className="ss-toggle-track" />
-                      <div className="ss-toggle-thumb" />
-                    </label>
-                  </div>
-                ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button
+                className="ss-btn-secondary"
+                style={{ background: "#1cb97a", color: "#fff", borderColor: "#1cb97a" }}
+                onClick={handleSaveNotifications}
+                disabled={notifSaving || notifLoading}
+              >
+                <Save size={12} /> {notifSaving ? "Saving…" : "Save Settings"}
+              </button>
+            </div>
+            {notifLoading ? (
+              <div style={{ padding: 24, textAlign: "center", color: "#aab0bb" }}>
+                Loading notifications…
               </div>
-            ))}
-          </>
-        )}
-
-        {/* ── Role Permissions ── */}
-        {activeTab === "permissions" && (
-          <>
-            {rolePermissions.map((group) => (
-              <div className="ss-perm-group" key={group.role}>
-                <div className="ss-perm-header">
-                  <Shield size={12} color="#6b7a8f" />
-                  {group.role}
-                </div>
-                <div className="ss-perm-grid">
-                  {group.permissions.map((perm) => (
-                    <div className="ss-perm-row" key={perm.id}>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#1a1e25",
-                        }}
-                      >
-                        {perm.name}
+            ) : (
+              notifGroups.map((group) => (
+                <div className="ss-notif-group" key={group.category}>
+                  <div className="ss-notif-header">{group.category}</div>
+                  {group.settings.map((setting) => (
+                    <div className="ss-notif-row" key={setting.settingKey}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1a1e25" }}>
+                        {setting.label}
                       </span>
                       <label className="ss-toggle">
                         <input
                           type="checkbox"
-                          defaultChecked={perm.enabled}
+                          checked={setting.enabled}
+                          onChange={(e) =>
+                            toggleNotifSetting(setting.settingKey, e.target.checked)
+                          }
                         />
                         <div className="ss-toggle-track" />
                         <div className="ss-toggle-thumb" />
@@ -1132,11 +1195,124 @@ export function SystemSettingsPage() {
                     </div>
                   ))}
                 </div>
+              ))
+            )}
+          </>
+        )}
+
+        {/* ── Role Permissions ── */}
+        {activeTab === "permissions" && (
+          <>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button
+                className="ss-btn-secondary"
+                style={{ background: "#1cb97a", color: "#fff", borderColor: "#1cb97a" }}
+                onClick={handleSavePermissions}
+                disabled={permSaving || permLoading}
+              >
+                <Save size={12} /> {permSaving ? "Saving…" : "Save Settings"}
+              </button>
+            </div>
+            {permLoading ? (
+              <div style={{ padding: 24, textAlign: "center", color: "#aab0bb" }}>
+                Loading permissions…
               </div>
-            ))}
+            ) : (
+              permGroups.map((group) => (
+                <div className="ss-perm-group" key={group.role}>
+                  <div className="ss-perm-header">
+                    <Shield size={12} color="#6b7a8f" />
+                    {group.role}
+                  </div>
+                  <div className="ss-perm-grid">
+                    {group.permissions.map((perm) => (
+                      <div className="ss-perm-row" key={perm.permissionKey}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+                          {perm.label}
+                        </span>
+                        <label className="ss-toggle">
+                          <input
+                            type="checkbox"
+                            checked={perm.enabled}
+                            onChange={(e) =>
+                              togglePermission(perm.permissionKey, e.target.checked)
+                            }
+                          />
+                          <div className="ss-toggle-track" />
+                          <div className="ss-toggle-thumb" />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </>
         )}
       </div>
+
+      {showCategoryModal && (
+        <div
+          className="ss-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowCategoryModal(false)}
+        >
+          <div className="ss-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ss-modal-header">
+              <strong style={{ fontSize: 14 }}>Add Waste Category</strong>
+              <button
+                type="button"
+                className="ss-icon-btn"
+                onClick={() => setShowCategoryModal(false)}
+                aria-label="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="ss-modal-body">
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#4a5568" }}>
+                Category name
+                <input
+                  className="ss-modal-input"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="e.g. Construction Waste"
+                  autoFocus
+                />
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#4a5568" }}>
+                Price per kg (CFA)
+                <input
+                  className="ss-modal-input"
+                  type="number"
+                  min={0}
+                  value={newCategoryPrice}
+                  onChange={(e) => setNewCategoryPrice(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="ss-modal-footer">
+              <button
+                type="button"
+                className="ss-btn-secondary"
+                onClick={() => setShowCategoryModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ss-btn-secondary"
+                style={{ background: "#1cb97a", color: "#fff", borderColor: "#1cb97a" }}
+                onClick={handleAddCategory}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Add Category"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </AdminMobileBlock>
   );

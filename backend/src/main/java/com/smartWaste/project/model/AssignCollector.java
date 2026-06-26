@@ -68,6 +68,7 @@ public class AssignCollector {
         COMPLETED,
         REJECTED,
         PENDING_CITIZEN_APPROVAL,
-        RECYCLED  // ← added: set when a partner is assigned to a completed collection
+        RECYCLED,
+        EMPTY
     }
 }

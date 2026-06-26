@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { WasteService } from "../../../services/wasteService";
@@ -73,36 +73,75 @@ export function WasteReportPage() {
     lat: number;
     lng: number;
   } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsHint, setGpsHint] = useState<string | null>(null);
+  const geolocateRequestRef = useRef(0);
 
   const brazzavilleLocations: {
     label: string;
     district: string;
+    lat: number;
+    lng: number;
   }[] = [
-    { label: "Avenue de la Paix", district: "Poto-Poto" },
-    { label: "Marché Total", district: "Poto-Poto" },
-    { label: "Avenue du Maréchal", district: "Poto-Poto" },
-    { label: "Rue Mbochi", district: "Moungali" },
-    { label: "Rond-Point Moungali", district: "Moungali" },
-    { label: "Rue Loubomo", district: "Moungali" },
-    { label: "Avenue Foch", district: "Bacongo" },
-    { label: "Rue du Commerce", district: "Bacongo" },
-    { label: "Cité du Fleuve", district: "Bacongo" },
-    { label: "Marché du Plateau", district: "Makélékélé" },
+    { label: "Avenue de la Paix", district: "Poto-Poto", lat: -4.269, lng: 15.281 },
+    { label: "Marché Total", district: "Poto-Poto", lat: -4.271, lng: 15.284 },
+    { label: "Avenue du Maréchal", district: "Poto-Poto", lat: -4.267, lng: 15.278 },
+    { label: "Rue Mbochi", district: "Moungali", lat: -4.252, lng: 15.272 },
+    { label: "Rond-Point Moungali", district: "Moungali", lat: -4.248, lng: 15.268 },
+    { label: "Rue Loubomo", district: "Moungali", lat: -4.255, lng: 15.275 },
+    { label: "Avenue Foch", district: "Bacongo", lat: -4.278, lng: 15.262 },
+    { label: "Rue du Commerce", district: "Bacongo", lat: -4.281, lng: 15.258 },
+    { label: "Cité du Fleuve", district: "Bacongo", lat: -4.275, lng: 15.255 },
+    { label: "Marché du Plateau", district: "Makélékélé", lat: -4.288, lng: 15.286 },
     {
       label: "Plateau des 15 Ans, Centre",
       district: "Plateau des 15 Ans",
+      lat: -4.285,
+      lng: 15.279,
     },
-    { label: "Avenue de l'Indépendance", district: "Ouenzé" },
-    { label: "Marché de Ouenzé", district: "Ouenzé" },
-    { label: "Avenue Lumumba", district: "Talangaï" },
-    { label: "Avenue de la Tsiémé", district: "Mfilou" },
-    { label: "Marché de Mfilou", district: "Mfilou" },
+    { label: "Avenue de l'Indépendance", district: "Ouenzé", lat: -4.238, lng: 15.252 },
+    { label: "Marché de Ouenzé", district: "Ouenzé", lat: -4.234, lng: 15.248 },
+    { label: "Avenue Lumumba", district: "Talangaï", lat: -4.212, lng: 15.262 },
+    { label: "Avenue de la Tsiémé", district: "Mfilou", lat: -4.225, lng: 15.238 },
+    { label: "Marché de Mfilou", district: "Mfilou", lat: -4.218, lng: 15.234 },
     {
       label: "Boulevard Denis Sassou Nguesso",
       district: "Ouenzé",
+      lat: -4.241,
+      lng: 15.255,
     },
-    { label: "Avenue de la Corniche", district: "Bacongo" },
+    { label: "Avenue de la Corniche", district: "Bacongo", lat: -4.272, lng: 15.251 },
   ];
+
+  function haversineKm(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function findNearestLocation(lat: number, lng: number) {
+    let nearest = brazzavilleLocations[0];
+    let bestDist = haversineKm(lat, lng, nearest.lat, nearest.lng);
+    for (const loc of brazzavilleLocations.slice(1)) {
+      const dist = haversineKm(lat, lng, loc.lat, loc.lng);
+      if (dist < bestDist) {
+        bestDist = dist;
+        nearest = loc;
+      }
+    }
+    return { location: nearest, distanceKm: bestDist };
+  }
 
   const filteredLocations = brazzavilleLocations.filter((l) => {
     const matchesQuery =
@@ -118,28 +157,102 @@ export function WasteReportPage() {
     return matchesQuery && matchesDistrict;
   });
 
+  const applyCoordinates = (
+    lat: number,
+    lng: number,
+    source: "gps" | "network",
+  ) => {
+    setGpsCoords({ lat, lng });
+
+    const { location: nearest, distanceKm } = findNearestLocation(lat, lng);
+    const locationLabel =
+      distanceKm <= 50
+        ? nearest.label
+        : `Near ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    setFormData((prev) => ({
+      ...prev,
+      location: locationLabel,
+      district:
+        distanceKm <= 50 ? nearest.district : prev.district || nearest.district,
+    }));
+    setLocationQuery(locationLabel);
+    setGpsHint(
+      source === "network"
+        ? "Approximate location from your network — adjust if needed."
+        : "Location detected — adjust if needed.",
+    );
+    setGpsError(null);
+    setGpsState("done");
+  };
+
+  const fetchNetworkLocation = async (): Promise<{
+    lat: number;
+    lng: number;
+  } | null> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+      const res = await fetch("https://ipwho.is/", {
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeoutId);
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      if (
+        data?.success &&
+        typeof data.latitude === "number" &&
+        typeof data.longitude === "number"
+      ) {
+        return { lat: data.latitude, lng: data.longitude };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
   const handleGeolocate = () => {
-    if (!navigator.geolocation) {
+    const requestId = ++geolocateRequestRef.current;
+    setGpsState("loading");
+    setGpsError(null);
+    setGpsHint(null);
+
+    const finishWithNetworkFallback = async () => {
+      const coords = await fetchNetworkLocation();
+      if (geolocateRequestRef.current !== requestId) return;
+
+      if (coords) {
+        applyCoordinates(coords.lat, coords.lng, "network");
+        return;
+      }
+
       setGpsState("error");
+      setGpsError(
+        "Could not detect your location. Pick a location from the list or type it manually.",
+      );
+    };
+
+    if (!navigator.geolocation) {
+      void finishWithNetworkFallback();
       return;
     }
-    setGpsState("loading");
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setGpsCoords({ lat: latitude, lng: longitude });
-        const nearest = brazzavilleLocations.find(
-          (l) => l.district === "Poto-Poto",
-        )!;
-        setFormData((prev) => ({
-          ...prev,
-          location: nearest.label,
-          district: nearest.district,
-        }));
-        setLocationQuery(nearest.label);
-        setGpsState("done");
+        if (geolocateRequestRef.current !== requestId) return;
+        applyCoordinates(pos.coords.latitude, pos.coords.longitude, "gps");
       },
-      () => setGpsState("error"),
+      () => {
+        if (geolocateRequestRef.current !== requestId) return;
+        void finishWithNetworkFallback();
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 600000,
+      },
     );
   };
 
@@ -157,6 +270,8 @@ export function WasteReportPage() {
     setLocationQuery("");
     setGpsState("idle");
     setGpsCoords(null);
+    setGpsError(null);
+    setGpsHint(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1229,8 +1344,7 @@ export function WasteReportPage() {
                     <span
                       style={{ color: "var(--green, #1cb97a)" }}
                     >
-                      GPS: {gpsCoords.lat.toFixed(4)},{" "}
-                      {gpsCoords.lng.toFixed(4)}
+                      {gpsHint ?? `Coordinates: ${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}`}
                     </span>
                   </p>
                 )}
@@ -1241,9 +1355,8 @@ export function WasteReportPage() {
                   >
                     <span aria-hidden="true">⚠</span>
                     <span>
-                      GPS is blocked in preview environments.
-                      This will work normally in your deployed
-                      app.
+                      {gpsError ??
+                        "Could not detect your location. Pick a location manually."}
                     </span>
                   </p>
                 )}

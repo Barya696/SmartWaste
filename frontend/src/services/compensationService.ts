@@ -10,7 +10,8 @@ export type CitizenReportStatus =
   | "in_progress"
   | "collected"
   | "recycled"
-  | "compensated";
+  | "compensated"
+  | "empty";
 
 export const RESUBMIT_HOURS_THRESHOLD = 48;
 
@@ -79,6 +80,19 @@ export interface CollectorCreditRow {
   status: "compensated" | "assigned" | "pending";
   collectorCredit: number | null;
   collectorPct: number | null;
+  date: string;
+}
+
+export interface CitizenCreditRow {
+  id: string;
+  reportId: string;
+  material: string;
+  weight: string;
+  location: string;
+  partner: string | null;
+  status: "compensated" | "assigned" | "pending";
+  citizenCredit: number | null;
+  citizenPct: number | null;
   date: string;
 }
 
@@ -151,6 +165,7 @@ function resolveCitizenReportStatus(
   compensation: CompensationData | undefined,
 ): CitizenReportStatus {
   if (compensation) return "compensated";
+  if (assignment?.assignmentStatus === "EMPTY") return "empty";
   if (assignment?.assignmentStatus === "RECYCLED") return "recycled";
   if (assignment?.assignmentStatus === "COMPLETED") return "collected";
   if (assignment?.assignmentStatus === "PENDING_CITIZEN_APPROVAL") {
@@ -205,7 +220,8 @@ export function getResubmitEligibility(
     report.pendingApproval ||
     report.status === "collected" ||
     report.status === "recycled" ||
-    report.status === "compensated"
+    report.status === "compensated" ||
+    report.status === "empty"
   ) {
     return { canResubmit: false, resubmitHoursRemaining: 0 };
   }
@@ -333,7 +349,8 @@ export const CompensationService = {
           collectedDate:
             status === "collected" ||
             status === "recycled" ||
-            status === "compensated"
+            status === "compensated" ||
+            status === "empty"
               ? formatDate(activeAssignment?.updatedAt ?? assignment?.updatedAt)
               : undefined,
           recycledDate:
@@ -461,6 +478,129 @@ export const CompensationService = {
           status: "assigned",
           collectorCredit: null,
           collectorPct: null,
+          date: assignment.assignmentDate,
+        });
+      }),
+    );
+
+    rows.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+    return rows;
+  },
+
+  async getCitizenCredits(citizenId: number): Promise<CitizenCreditRow[]> {
+    const [compensations, assignmentsRaw, partners, reports] = await Promise.all([
+      this.getByCitizen(citizenId),
+      // We need to fetch all assignments for this citizen's reports
+      (async () => {
+        const userReports = await fetchJson<WasteReport[]>(
+          `${API_BASE}/reports/user/${citizenId}`,
+        );
+        if (!userReports) return [] as AssignmentWithReport[];
+        
+        const allAssignments: AssignmentWithReport[] = [];
+        for (const report of userReports) {
+          const reportAssignments = await fetchJson<AssignCollectorData[]>(
+            `${API_BASE}/assignments/report/${report.id}`,
+          );
+          if (reportAssignments) {
+            for (const assignment of reportAssignments) {
+              allAssignments.push({
+                ...assignment,
+                wasteReport: report,
+              } as unknown as AssignmentWithReport);
+            }
+          }
+        }
+        return allAssignments;
+      })(),
+      fetchJson<PartnerRow[]>(`${API_BASE}/partners`),
+      WasteService.getAllWastes().catch(() => [] as WasteReport[]),
+    ]);
+
+    const assignments = assignmentsRaw as AssignmentWithReport[];
+    const partnerMap = new Map((partners ?? []).map((p) => [p.id, p.name]));
+    const reportMap = new Map(reports.map((r) => [r.id, r]));
+    const assignmentMap = new Map(assignments.map((a) => [a.id, a]));
+    const compensatedAssignmentIds = new Set(
+      compensations.map((c) => c.assignmentId),
+    );
+
+    const rows: CitizenCreditRow[] = [];
+
+    for (const comp of compensations) {
+      const assignment = assignmentMap.get(comp.assignmentId);
+      const report =
+        assignment?.wasteReport ?? reportMap.get(assignment?.reportId ?? -1);
+
+      let partnerName: string | null = null;
+      if (comp.partnerId != null) {
+        partnerName = partnerMap.get(comp.partnerId) ?? null;
+      }
+      if (!partnerName && comp.assignPartnerId != null) {
+        const ap = await fetchJson<AssignPartnerRow>(
+          `${API_BASE}/assign-partner/${comp.assignPartnerId}`,
+        );
+        if (ap?.partnerId) {
+          partnerName = partnerMap.get(ap.partnerId) ?? null;
+        }
+      }
+
+      rows.push({
+        id: `comp-${comp.id}`,
+        reportId: resolveReportId(report, assignment?.reportId ?? comp.assignmentId),
+        material: comp.materialType || report?.category || "—",
+        weight: formatWeight(comp.weightKg),
+        location: report?.location ?? "—",
+        partner: partnerName,
+        status: "compensated",
+        citizenCredit: comp.citizenAmount,
+        citizenPct: comp.citizenPct,
+        date: comp.compensatedAt ?? comp.createdAt ?? "",
+      });
+    }
+
+    const pendingAssignments = assignments.filter(
+      (a) =>
+        a.assignmentStatus === "RECYCLED" &&
+        !compensatedAssignmentIds.has(a.id),
+    );
+
+    await Promise.all(
+      pendingAssignments.map(async (assignment) => {
+        const report =
+          assignment.wasteReport ?? reportMap.get(assignment.reportId);
+        const ap = await fetchJson<AssignPartnerRow>(
+          `${API_BASE}/assign-partner/assignment/${assignment.id}`,
+        );
+
+        let partnerName: string | null = null;
+        if (ap?.partnerId) {
+          partnerName = partnerMap.get(ap.partnerId) ?? null;
+        }
+
+        const material =
+          ap?.materialType?.replace(/,/g, ", ") ||
+          report?.category ||
+          "—";
+        const weight = ap?.weightKg
+          ? ap.weightKg
+              .split(",")
+              .map((w) => formatWeight(w.trim()))
+              .join(" + ")
+          : formatWeight(report?.quantity);
+
+        rows.push({
+          id: `pending-${assignment.id}`,
+          reportId: resolveReportId(report, assignment.reportId),
+          material,
+          weight,
+          location: report?.location ?? "—",
+          partner: partnerName,
+          status: "assigned",
+          citizenCredit: null,
+          citizenPct: null,
           date: assignment.assignmentDate,
         });
       }),

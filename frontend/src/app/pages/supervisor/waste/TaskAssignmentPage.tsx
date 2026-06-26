@@ -21,6 +21,10 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
+import {
+  AssignCollectorService,
+  type AssignCollectorData,
+} from "../../../../services/assignCollectorService";
 
 type Priority = "critical" | "high" | "medium" | "low";
 type Status = "pending" | "in_progress" | "completed" | "rejected";
@@ -81,72 +85,111 @@ interface Collector {
   backendId: number;
 }
 
-// Helper functions for backend integration
-async function fetchReports(): Promise<Report[]> {
-  try {
-    const response = await fetch("http://localhost:8080/api/reports", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    });
-    if (!response.ok) return [];
-    const backendReports: BackendReport[] = await response.json();
-    
-    return backendReports
-      .map((br) => ({
-      id: br.trackingNumber,
-      backendId: br.id,
-      citizenName: `User ${br.userId}`,
-      district: br.district,
-      address: br.location,
-      wasteType: br.category,
-      priority: determinePriority(br.category),
-      status: mapStatus(br.status),
-      submittedAt: br.lastResubmittedAt ?? br.createdAt,
-      description: br.description,
-      hasPhoto: !!br.photoUrl,
-      photoUrl: br.photoUrl,
-      assignedTo: null,
-    }))
-      .sort(
-        (a, b) =>
-          new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime(),
-      );
-  } catch (error) {
-    console.error("Failed to fetch reports:", error);
-    return [];
-  }
+function findActiveAssignment(
+  reportId: number,
+  assignments: AssignCollectorData[],
+): AssignCollectorData | undefined {
+  const active = assignments.filter(
+    (a) =>
+      a.reportId === reportId && a.assignmentStatus !== "REJECTED",
+  );
+  if (active.length === 0) return undefined;
+  return active.sort(
+    (a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  )[0];
 }
 
-async function fetchCollectors(): Promise<Collector[]> {
+function mapReportStatus(
+  backendStatus: string,
+  assignment?: AssignCollectorData,
+): Status {
+  if (assignment) {
+    const s = assignment.assignmentStatus;
+    if (s === "COMPLETED" || s === "RECYCLED") return "completed";
+    return "in_progress";
+  }
+  return mapStatus(backendStatus);
+}
+
+async function loadTaskAssignmentData(): Promise<{
+  reports: Report[];
+  collectors: Collector[];
+}> {
   try {
-    const response = await fetch("http://localhost:8080/api/users", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    });
-    if (!response.ok) return [];
-    const users: BackendCollector[] = await response.json();
-    
-    // Filter only COLLECTOR role users
-    return users
+    const [reportsRes, usersRes, assignments] = await Promise.all([
+      fetch("http://localhost:8080/api/reports", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      }),
+      fetch("http://localhost:8080/api/users", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      }),
+      AssignCollectorService.getAllAssignments(),
+    ]);
+
+    if (!reportsRes.ok || !usersRes.ok) {
+      return { reports: [], collectors: [] };
+    }
+
+    const backendReports: BackendReport[] = await reportsRes.json();
+    const users: BackendCollector[] = await usersRes.json();
+
+    const collectorMap = new Map<number, string>();
+    const collectors = users
       .filter((u) => u.role === "COLLECTOR")
-      .map((u) => ({
-        id: String(u.id),
-        backendId: u.id,
-        name: `${u.firstName} ${u.lastName}`,
-        phone: u.phoneNumber,
-        district: "",
-        activeTasks: 0,
-        status: "available" as const,
-      }));
+      .map((u) => {
+        const name = `${u.firstName} ${u.lastName}`;
+        collectorMap.set(u.id, name);
+        return {
+          id: String(u.id),
+          backendId: u.id,
+          name,
+          phone: u.phoneNumber,
+          district: "",
+          activeTasks: 0,
+          status: "available" as const,
+        };
+      });
+
+    const reports = backendReports
+      .map((br) => {
+        const assignment = findActiveAssignment(br.id, assignments);
+        const assignedTo = assignment
+          ? collectorMap.get(assignment.collectorId) ??
+            `Collector ${assignment.collectorId}`
+          : null;
+
+        return {
+          id: br.trackingNumber,
+          backendId: br.id,
+          citizenName: `User ${br.userId}`,
+          district: br.district,
+          address: br.location,
+          wasteType: br.category,
+          priority: determinePriority(br.category),
+          status: mapReportStatus(br.status, assignment),
+          submittedAt: br.lastResubmittedAt ?? br.createdAt,
+          description: br.description,
+          hasPhoto: !!br.photoUrl,
+          photoUrl: br.photoUrl,
+          assignedTo,
+          assignedAt: assignment?.assignmentDate ?? assignment?.createdAt,
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.submittedAt).getTime() -
+          new Date(a.submittedAt).getTime(),
+      );
+
+    return { reports, collectors };
   } catch (error) {
-    console.error("Failed to fetch collectors:", error);
-    return [];
+    console.error("Failed to load task assignment data:", error);
+    return { reports: [], collectors: [] };
   }
 }
 
@@ -248,10 +291,8 @@ export function TaskAssignmentPage() {
     async function loadData() {
       try {
         setLoading(true);
-        const [reportsData, collectorsData] = await Promise.all([
-          fetchReports(),
-          fetchCollectors(),
-        ]);
+        const { reports: reportsData, collectors: collectorsData } =
+          await loadTaskAssignmentData();
         setReports(reportsData);
         setCollectors(collectorsData);
         setError(null);

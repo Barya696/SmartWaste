@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,6 +58,10 @@ public class AssignCollectorService {
     public List<AssignCollector> getActiveAssignmentsByCollector(Long collectorId) {
         return assignCollectorRepository.findByCollectorIdAndAssignmentStatus(
                 collectorId, AssignCollector.AssignmentStatus.PENDING);
+    }
+
+    public List<AssignCollector> getAssignmentsByCollectorAndDate(Long collectorId, LocalDate date) {
+        return assignCollectorRepository.findByCollectorIdAndCreatedAtDate(collectorId, date);
     }
 
     public List<AssignCollector> getAssignmentsBySupervisor(Long supervisorId) {

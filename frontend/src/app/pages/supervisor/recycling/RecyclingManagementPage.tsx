@@ -175,7 +175,6 @@ function buildTopStats(compensationMap: Record<number, CompensationRecord>) {
     if (comp.partnerId != null) partnerIds.add(Number(comp.partnerId));
     totalWeightKg += comp.weightKg || 0;
     if (comp.citizenId != null) citizenIds.add(Number(comp.citizenId));
-    if (comp.collectorId != null) citizenIds.add(Number(comp.collectorId));
     totalCompensationXaf += comp.netAmount || 0;
   });
 
@@ -239,7 +238,8 @@ function initials(name: string) {
 function toggleMaterial(list: string[], m: string): string[] {
   return list.includes(m) ? list.filter((x) => x !== m) : [...list, m];
 }
-function fmt(n: number) {
+function fmt(n: number | undefined | null) {
+  if (n == null) return "0 XAF";
   return (
     n.toLocaleString("fr-CG", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " XAF"
   );
@@ -534,7 +534,7 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
   const [compTab, setCompTab] = useState<CompTab>("receipts");
   const [prices, setPrices] = useState<Record<string, number>>({ ...DEFAULT_PRICES });
   const [taxes, setTaxes] = useState({ vatPct: 18, envLevyPct: 2 });
-  const [shares, setShares] = useState({ citizenPct: 60, collectorPct: 25, systemPct: 15 });
+  const [shares, setShares] = useState({ citizenPct: 75, systemPct: 25 });
   const [receiptHistory, setReceiptHistory] = useState<ReceiptRecord[]>([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [savingReceipt, setSavingReceipt] = useState(false);
@@ -620,9 +620,8 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
     try {
       const data = await compensationConfigService.getShareConfig();
       setShares({
-        citizenPct:   data["Citizen"]   ?? 60,
-        collectorPct: data["Collector"] ?? 25,
-        systemPct:    data["System"]    ?? 15,
+        citizenPct: data["Citizen"] ?? 75,
+        systemPct: data["System"] ?? 25,
       });
     } catch (err) {
       console.error("[CompensationTab] Error fetching share config:", err);
@@ -635,7 +634,7 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
       setConfigError(null);
       await compensationConfigService.saveMaterialPrices(prices);
       await compensationConfigService.saveTaxConfig({ "VAT": taxes.vatPct, "Environmental Levy": taxes.envLevyPct });
-      await compensationConfigService.saveShareConfig({ "Citizen": shares.citizenPct, "Collector": shares.collectorPct, "System": shares.systemPct });
+      await compensationConfigService.saveShareConfig({ "Citizen": shares.citizenPct, "System": shares.systemPct });
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : "Failed to save configuration");
     } finally {
@@ -643,7 +642,7 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
     }
   }
 
-  const shareTotal = shares.citizenPct + shares.collectorPct + shares.systemPct;
+  const shareTotal = shares.citizenPct + shares.systemPct;
   const shareError = shareTotal !== 100;
 
   const filterPartnerId = selectedPartner ? parseInt(selectedPartner, 10) : null;
@@ -670,50 +669,50 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
         const vatRatio = comp.grossAmount > 0 ? comp.vatAmount    / comp.grossAmount : 0;
         const envRatio = comp.grossAmount > 0 ? comp.envLevyAmount / comp.grossAmount : 0;
         return breakdown.map((b) => ({
-          wasteId:        w.id,
-          reportId:       w.reportId,
-          citizen:        w.citizen,
-          material:       b.type,
-          weightKg:       b.weightKg,
-          pricePerKg:     b.pricePerKg,
-          grossAmount:    b.gross,
-          vatAmount:      b.gross * vatRatio,
-          envAmount:      b.gross * envRatio,
-          netAmount:      b.gross * (1 - vatRatio - envRatio),
-          citizenShare:   b.gross * (1 - vatRatio - envRatio) * (comp.citizenPct   / 100),
+          wasteId:      w.id,
+          reportId:     w.reportId,
+          citizen:      w.citizen,
+          material:     b.type,
+          weightKg:     b.weightKg,
+          pricePerKg:   b.pricePerKg,
+          grossAmount:  b.gross,
+          vatAmount:    b.gross * vatRatio,
+          envAmount:    b.gross * envRatio,
+          netAmount:    b.gross * (1 - vatRatio - envRatio),
+          citizenShare: b.gross * (1 - vatRatio - envRatio) * (comp.citizenPct / 100),
           collectorShare: b.gross * (1 - vatRatio - envRatio) * (comp.collectorPct / 100),
-          systemShare:    b.gross * (1 - vatRatio - envRatio) * (comp.systemPct    / 100),
-          vatPct:         comp.vatPct,
-          envPct:         comp.envLevyPct,
-          citizenPct:     comp.citizenPct,
-          collectorPct:   comp.collectorPct,
-          systemPct:      comp.systemPct,
-          date:           comp.compensatedAt,
-          partnerId:      comp.partnerId,
+          systemShare:  b.gross * (1 - vatRatio - envRatio) * (comp.systemPct / 100),
+          vatPct:       comp.vatPct,
+          envPct:       comp.envLevyPct,
+          citizenPct:   comp.citizenPct,
+          collectorPct: comp.collectorPct,
+          systemPct:    comp.systemPct,
+          date:         comp.compensatedAt,
+          partnerId:    comp.partnerId,
         }));
       }
 
       return [{
-        wasteId:        w.id,
-        reportId:       w.reportId,
-        citizen:        w.citizen,
-        material:       comp.materialType,
-        weightKg:       comp.weightKg,
-        pricePerKg:     comp.pricePerKg,
-        grossAmount:    comp.grossAmount,
-        vatAmount:      comp.vatAmount,
-        envAmount:      comp.envLevyAmount,
-        netAmount:      comp.netAmount,
-        citizenShare:   comp.citizenAmount,
+        wasteId:      w.id,
+        reportId:     w.reportId,
+        citizen:      w.citizen,
+        material:     comp.materialType,
+        weightKg:     comp.weightKg,
+        pricePerKg:   comp.pricePerKg,
+        grossAmount:  comp.grossAmount,
+        vatAmount:    comp.vatAmount,
+        envAmount:    comp.envLevyAmount,
+        netAmount:    comp.netAmount,
+        citizenShare: comp.citizenAmount,
         collectorShare: comp.collectorAmount,
-        systemShare:    comp.systemAmount,
-        vatPct:         comp.vatPct,
-        envPct:         comp.envLevyPct,
-        citizenPct:     comp.citizenPct,
-        collectorPct:   comp.collectorPct,
-        systemPct:      comp.systemPct,
-        date:           comp.compensatedAt,
-        partnerId:      comp.partnerId,
+        systemShare:  comp.systemAmount,
+        vatPct:       comp.vatPct,
+        envPct:       comp.envLevyPct,
+        citizenPct:   comp.citizenPct,
+        collectorPct: comp.collectorPct,
+        systemPct:    comp.systemPct,
+        date:         comp.compensatedAt,
+        partnerId:    comp.partnerId,
       }];
     })
     .filter((row) => {
@@ -735,23 +734,23 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
 
   const totals = receiptRows.reduce(
     (acc, r) => ({
-      gross:     acc.gross     + r.grossAmount,
-      vat:       acc.vat       + r.vatAmount,
-      env:       acc.env       + r.envAmount,
-      net:       acc.net       + r.netAmount,
-      citizen:   acc.citizen   + r.citizenShare,
-      collector: acc.collector + r.collectorShare,
-      system:    acc.system    + r.systemShare,
-      weightKg:  acc.weightKg  + r.weightKg,
+      gross:    acc.gross    + r.grossAmount,
+      vat:      acc.vat      + r.vatAmount,
+      env:      acc.env      + r.envAmount,
+      net:      acc.net      + r.netAmount,
+      citizen:  acc.citizen  + r.citizenShare,
+      collector: acc.collector + (r.collectorShare ?? 0),
+      system:   acc.system   + r.systemShare,
+      weightKg: acc.weightKg + r.weightKg,
     }),
     { gross: 0, vat: 0, env: 0, net: 0, citizen: 0, collector: 0, system: 0, weightKg: 0 },
   );
 
-  const displayVatPct       = receiptRows[0]?.vatPct       ?? taxes.vatPct;
-  const displayEnvPct       = receiptRows[0]?.envPct       ?? taxes.envLevyPct;
-  const displayCitizenPct   = receiptRows[0]?.citizenPct   ?? shares.citizenPct;
-  const displayCollectorPct = receiptRows[0]?.collectorPct ?? shares.collectorPct;
-  const displaySystemPct    = receiptRows[0]?.systemPct    ?? shares.systemPct;
+  const displayVatPct     = receiptRows[0]?.vatPct     ?? taxes.vatPct;
+  const displayEnvPct     = receiptRows[0]?.envPct     ?? taxes.envLevyPct;
+  const displayCitizenPct = receiptRows[0]?.citizenPct ?? shares.citizenPct;
+  const displayCollectorPct = receiptRows[0]?.collectorPct ?? 0;
+  const displaySystemPct  = receiptRows[0]?.systemPct  ?? shares.systemPct;
 
   const partnerForReceipt = filterPartnerId
     ? partners.find((p) => p.id === filterPartnerId) ?? null
@@ -879,7 +878,6 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
   <div class="section-title">Distribution of Net Amount</div>
   <div class="shares-grid">
     <div class="share-card"><div class="share-label">Citizen</div><div class="share-pct">${displayCitizenPct}% of net</div><div class="share-amount">${totals.citizen.toLocaleString(undefined, { maximumFractionDigits: 0 })} XAF</div></div>
-    <div class="share-card"><div class="share-label">Collector</div><div class="share-pct">${displayCollectorPct}% of net</div><div class="share-amount">${totals.collector.toLocaleString(undefined, { maximumFractionDigits: 0 })} XAF</div></div>
     <div class="share-card"><div class="share-label">System</div><div class="share-pct">${displaySystemPct}% of net</div><div class="share-amount">${totals.system.toLocaleString(undefined, { maximumFractionDigits: 0 })} XAF</div></div>
   </div>
 </div>
@@ -1038,9 +1036,8 @@ function CompensationTab({ assignments, partners, compensationMap }: Compensatio
                 <div className="ct-config-body">
                   <div className="ct-label">Distribution of net (must total 100%)</div>
                   {([
-                    { key: "citizenPct",   label: "Citizen"   },
-                    { key: "collectorPct", label: "Collector" },
-                    { key: "systemPct",    label: "System"    },
+                    { key: "citizenPct", label: "Citizen" },
+                    { key: "systemPct", label: "System" },
                   ] as const).map(({ key, label }) => (
                     <div className="ct-row" key={key}>
                       <span className="ct-row-label">{label}</span>
@@ -1347,6 +1344,7 @@ export function RecyclingManagementPage() {
   // and that row reliably carries the correct partnerId.
   const assignPartnerToPartnerRef = useRef<Record<number, number>>({});
   const [compensationMap, setCompensationMap] = useState<Record<number, CompensationRecord>>({});
+  const [compensateConfirmId, setCompensateConfirmId] = useState<string | null>(null);
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -1355,8 +1353,9 @@ export function RecyclingManagementPage() {
       if (showAdd)    { setShowAdd(false);   return; }
       if (editId)     { setEditId(null); setEditForm(null); setEditDirty(false); return; }
       if (deleteId)   { setDeleteId(null);   return; }
+      if (compensateConfirmId) { setCompensateConfirmId(null); return; }
     },
-    [expandedId, showAdd, editId, deleteId],
+    [expandedId, showAdd, editId, deleteId, compensateConfirmId],
   );
 
   useEffect(() => {
@@ -1815,7 +1814,7 @@ export function RecyclingManagementPage() {
     flash(`${id} assigned to ${partner} — ${materialStr} · ${weightStr}`);
   }
 
-  async function handleCompensate(id: string) {
+  async function confirmCompensate(id: string) {
     const wasteItem = wasteAssignments.find((x) => x.id === id);
     if (!wasteItem) return;
 
@@ -1964,6 +1963,10 @@ export function RecyclingManagementPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to compensate");
     }
+  }
+
+  function handleCompensate(id: string) {
+    setCompensateConfirmId(id);
   }
 
   const filteredPartners = partners.filter((p) => {
@@ -2748,6 +2751,64 @@ export function RecyclingManagementPage() {
             <div style={{ width: 40, height: 40, border: "3px solid #e4e7eb", borderTop: "3px solid #1cb97a", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
             <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1e25" }}>Processing...</div>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        </div>
+      )}
+
+      {compensateConfirmId && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1001, backdropFilter: "blur(2px)" }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: 28, width: "90%", maxWidth: 420, boxShadow: "0 15px 50px rgba(0,0,0,0.2)", fontFamily: "'Nunito Sans','DM Sans',-apple-system,sans-serif" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, background: "#dbeafe", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <DollarSign size={22} color="#3b82f6" />
+              </div>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#1a1e25" }}>Confirm Compensation</div>
+                <div style={{ fontSize: 12, color: "#718096" }}>Report: {compensateConfirmId}</div>
+              </div>
+            </div>
+            <p style={{ margin: "10px 0 22px", color: "#4a5568", fontSize: 13.5, lineHeight: 1.5 }}>
+              Are you sure you want to compensate this report? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setCompensateConfirmId(null)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 6,
+                  border: "1px solid #e2e8f0",
+                  background: "#f7fafc",
+                  color: "#2d3748",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (compensateConfirmId) {
+                    confirmCompensate(compensateConfirmId);
+                    setCompensateConfirmId(null);
+                  }
+                }}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#1cb97a",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Yes, Compensate
+              </button>
+            </div>
           </div>
         </div>
       )}

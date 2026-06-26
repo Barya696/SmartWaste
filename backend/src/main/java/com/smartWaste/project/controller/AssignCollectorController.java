@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -82,6 +83,24 @@ public class AssignCollectorController {
     public ResponseEntity<?> getAssignmentsByCollector(@PathVariable Long collectorId) {
         try {
             List<AssignCollector> assignments = assignCollectorService.getAssignmentsByCollector(collectorId);
+            return ResponseEntity.ok(assignments);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Failed to retrieve assignments: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get assignments for a collector created on a specific date (format: YYYY-MM-DD)
+     * GET /api/assignments/collector/{collectorId}/date/{date}
+     */
+    @GetMapping("/collector/{collectorId}/date/{date}")
+    public ResponseEntity<?> getAssignmentsByCollectorAndDate(
+            @PathVariable Long collectorId,
+            @PathVariable String date) {
+        try {
+            LocalDate localDate = LocalDate.parse(date);
+            List<AssignCollector> assignments = assignCollectorService.getAssignmentsByCollectorAndDate(collectorId, localDate);
             return ResponseEntity.ok(assignments);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -180,6 +199,7 @@ public class AssignCollectorController {
         @RequestBody StatusUpdateRequest request
     ) {
         try {
+            System.out.println("patchAssignmentStatus called with id: " + id + ", status: " + request.getStatus());
             if (request.getStatus() == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ErrorResponse("Status is required"));
@@ -187,9 +207,11 @@ public class AssignCollectorController {
             AssignCollector assignment = assignCollectorService.updateAssignmentStatus(id, request.getStatus());
             return ResponseEntity.ok(assignment);
         } catch (IllegalArgumentException e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse(e.getMessage()));
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("Failed to update assignment: " + e.getMessage()));
         }

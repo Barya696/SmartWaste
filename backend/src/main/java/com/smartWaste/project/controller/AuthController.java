@@ -117,6 +117,12 @@ public class AuthController {
             System.out.println("✅ Login successful!");
             System.out.println("===================================\n");
             
+            // Record successful login event
+            securityEventService.record(
+                    SecurityEventService.SUCCESSFUL_LOGIN,
+                    "User successfully logged in",
+                    loginRequest.getEmail());
+            
             return ResponseEntity.ok(foundUser);
         } catch (Exception e) {
             System.out.println("❌ Login exception: " + e.getMessage());
@@ -133,11 +139,11 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session, Authentication auth) {
         System.out.println("\n========== CHECK /me ENDPOINT ==========");
-        if (auth == null) {
+        if (auth == null || !auth.isAuthenticated()) {
             System.out.println("❌ No authentication found");
             System.out.println("Session ID: " + session.getId());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse("No authentication found"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("Not authenticated"));
         }
         System.out.println("✅ User authenticated: " + auth.getName());
         System.out.println("Authorities: " + auth.getAuthorities());
@@ -179,6 +185,13 @@ public class AuthController {
             newUser.setUsername(username);
             
             Users savedUser = usersRepository.save(newUser);
+            
+            // Record successful signup event
+            securityEventService.record(
+                    SecurityEventService.SUCCESSFUL_SIGNUP,
+                    "User successfully signed up",
+                    signupRequest.getEmail());
+                    
             return ResponseEntity.status(HttpStatus.CREATED).body(savedUser);
         } catch (Exception e) {
             securityEventService.record(
@@ -298,6 +311,35 @@ public class AuthController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("Failed to reset password: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request, Authentication auth) {
+        try {
+            String email = auth != null ? auth.getName() : "unknown";
+            
+            // Invalidate session
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                session.invalidate();
+            }
+            
+            // Clear security context
+            SecurityContextHolder.clearContext();
+            
+            // Record logout event
+            if (!"unknown".equals(email)) {
+                securityEventService.record(
+                        SecurityEventService.USER_LOGOUT,
+                        "User successfully logged out",
+                        email);
+            }
+            
+            return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Logout failed: " + e.getMessage()));
         }
     }
 

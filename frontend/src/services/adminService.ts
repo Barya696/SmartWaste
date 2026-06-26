@@ -99,6 +99,14 @@ export interface AnalyticsData {
   }[];
 }
 
+export interface SecurityEvent {
+  id: number;
+  eventType: string;
+  message: string;
+  email: string;
+  createdAt: string;
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   Plastic: "#3b82f6",
   Organic: "#1cb97a",
@@ -629,6 +637,18 @@ export const AdminService = {
     return { reports, users, assignments, compensations };
   },
 
+  async getSecurityEvents(): Promise<SecurityEvent[]> {
+    const response = await fetch(`${API_BASE}/audit/security-events`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch security events: ${response.status}`);
+    }
+    return response.json();
+  },
+
   async getDashboardStats(): Promise<DashboardStats> {
     const { reports, users, assignments, compensations } =
       await this.fetchCoreData();
@@ -682,8 +702,14 @@ export const AdminService = {
 
   getMaterialPrices: compensationConfigService.getMaterialPrices,
   saveMaterialPrices: compensationConfigService.saveMaterialPrices,
+  deleteMaterialPrice: compensationConfigService.deleteMaterialPrice,
   getTaxConfig: compensationConfigService.getTaxConfig,
   saveTaxConfig: compensationConfigService.saveTaxConfig,
   getShareConfig: compensationConfigService.getShareConfig,
   saveShareConfig: compensationConfigService.saveShareConfig,
+
+  // ── Waste Categories (new waste_category table) ──────────────────────────
+  getWasteCategories: compensationConfigService.getWasteCategories,
+  saveWasteCategories: compensationConfigService.saveWasteCategories,
+  deleteWasteCategory: compensationConfigService.deleteWasteCategory,
 };

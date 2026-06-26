@@ -1,6 +1,69 @@
 // ── Compensation Config Service ──────────────────────────────────────────────
 
+export interface WasteCategoryDTO {
+  id?: number;
+  name: string;
+  icon: string;
+  color: string;
+  pricePerKg: number;
+  active: boolean;
+}
+
 const compensationConfigService = {
+
+  // ── Waste Categories ──────────────────────────────────────────────────────
+  /**
+   * Fetch all active waste categories from backend.
+   * Returns: [ { id, name, icon, color, pricePerKg, active }, ... ]
+   */
+  async getWasteCategories(): Promise<WasteCategoryDTO[]> {
+    const response = await fetch('http://localhost:8080/api/waste-categories', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch waste categories: ${response.status} ${errorText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Save (full sync) all waste categories.
+   * Body: array of WasteCategoryDTO objects.
+   */
+  async saveWasteCategories(categories: WasteCategoryDTO[]): Promise<any> {
+    const response = await fetch('http://localhost:8080/api/waste-categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(categories),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to save waste categories: ${response.status} ${errorText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Soft-delete a waste category by name.
+   */
+  async deleteWasteCategory(name: string): Promise<void> {
+    const response = await fetch(
+      `http://localhost:8080/api/waste-categories?name=${encodeURIComponent(name)}`,
+      { method: 'DELETE', credentials: 'include' },
+    );
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const message =
+        typeof body?.message === 'string'
+          ? body.message
+          : `Failed to delete waste category: ${response.status}`;
+      throw new Error(message);
+    }
+  },
 
   // ── Material prices ──────────────────────────────────────────────────────
   /**
@@ -61,6 +124,25 @@ const compensationConfigService = {
     } catch (err) {
       console.error('[CompensationConfigService] Error saving prices:', err);
       throw err;
+    }
+  },
+
+  async deleteMaterialPrice(materialName: string): Promise<void> {
+    const response = await fetch(
+      `http://localhost:8080/api/material-prices?name=${encodeURIComponent(materialName)}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+      },
+    );
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const message =
+        typeof body?.message === 'string'
+          ? body.message
+          : `Failed to delete material price: ${response.status}`;
+      throw new Error(message);
     }
   },
 

@@ -16,6 +16,8 @@ import {
   X,
   CheckCircle,
   Bell,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -258,6 +260,11 @@ const statusConfig: Record<
     color: "#1d4ed8",
     bg: "rgba(29,78,216,0.10)",
   },
+  empty: {
+    label: "Empty",
+    color: "#aab0bb",
+    bg: "rgba(170,176,187,0.10)",
+  },
 };
 
 const tlSteps = [
@@ -273,7 +280,36 @@ const tlOrder: Record<string, number> = {
   collected: 2,
   recycled: 3,
   compensated: 4,
+  empty: -1,
 };
+
+const wasteCategories = [
+  "Plastic",
+  "Organic",
+  "Paper",
+  "Glass",
+  "Metal",
+  "Electronic Waste",
+  "Construction Waste",
+  "Hazardous Waste",
+];
+
+const districts = [
+  "Poto-Poto",
+  "Moungali",
+  "Bacongo",
+  "Makélékélé",
+  "Plateau des 15 Ans",
+  "Ouenzé",
+  "Mfilou",
+  "Talangaï",
+];
+
+const quantitySizes = [
+  { id: "small", label: "Small", hint: "< 10kg" },
+  { id: "medium", label: "Medium", hint: "10–50kg" },
+  { id: "large", label: "Large", hint: "> 50kg" },
+];
 
 // FIX #2: ReportRight uses CSS variables instead of hardcoded hex.
 function ReportRight({
@@ -568,8 +604,11 @@ function ExpandedPanel({
   onApprove,
   onRefresh,
   onResubmit,
+  onEdit,
+  onDelete,
   isRefreshing,
   isResubmitting,
+  isDeleting,
   pointsPerCompensation,
 }: {
   report: Report;
@@ -577,24 +616,30 @@ function ExpandedPanel({
   onApprove: (reportId: string) => void;
   onRefresh?: (reportId: string) => void;
   onResubmit?: (reportId: string) => void;
+  onEdit?: (report: Report) => void;
+  onDelete?: (reportId: string) => void;
   isRefreshing?: boolean;
   isResubmitting?: boolean;
+  isDeleting?: boolean;
   pointsPerCompensation: number;
 }) {
   const handleApproveCollection = onApprove;
+  const showPendingActions = report.status === "pending";
   const showResubmit =
     (report.status === "pending" || report.status === "in_progress") &&
     !report.pendingApproval;
   const resubmitLabel = isResubmitting ? "Resubmitting…" : "Resubmit report";
 
   const helpText: Record<string, string> = {
-    pending: report.canResubmit
-      ? "No collector has been assigned yet. You can resubmit now to bump this report back to the top of the queue."
-      : `No collector has been assigned yet. Resubmit becomes available after ${RESUBMIT_HOURS_THRESHOLD} hours${
-          report.resubmitHoursRemaining
-            ? ` (about ${report.resubmitHoursRemaining}h remaining).`
-            : "."
-        }`,
+    pending: showPendingActions
+      ? "This report is still waiting for a collector. You can edit or delete it until someone is assigned."
+      : report.canResubmit
+        ? "No collector has been assigned yet. You can resubmit now to bump this report back to the top of the queue."
+        : `No collector has been assigned yet. Resubmit becomes available after ${RESUBMIT_HOURS_THRESHOLD} hours${
+            report.resubmitHoursRemaining
+              ? ` (about ${report.resubmitHoursRemaining}h remaining).`
+              : "."
+          }`,
     in_progress: report.pendingApproval
       ? `${report.assignedCollector ?? "Your collector"} has marked this as collected and is awaiting your approval. Tap "Approve Collection" to confirm.`
       : report.canResubmit
@@ -625,6 +670,27 @@ function ExpandedPanel({
       <div
         style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
       >
+        {showPendingActions && (
+          <>
+            <ActionButton
+              icon={<Pencil size={12} aria-hidden="true" />}
+              label="Edit report"
+              color="#1d4ed8"
+              bg="#dbeafe"
+              border="#93c5fd"
+              onClick={() => onEdit?.(report)}
+            />
+            <ActionButton
+              icon={<Trash2 size={12} aria-hidden="true" />}
+              label={isDeleting ? "Deleting…" : "Delete report"}
+              color="#991b1b"
+              bg="#fee2e2"
+              border="#fecaca"
+              disabled={isDeleting}
+              onClick={() => onDelete?.(report.id)}
+            />
+          </>
+        )}
         {showResubmit && (
           <ActionButton
             icon={<RefreshCw size={12} aria-hidden="true" />}
@@ -720,6 +786,320 @@ function ExpandedPanel({
       >
         {helpText[report.status]}
       </p>
+    </div>
+  );
+}
+
+function EditReportModal({
+  report,
+  onClose,
+  onSaved,
+}: {
+  report: Report;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    category: report.type,
+    district: report.district,
+    location: report.location,
+    description: "",
+    quantity: report.quantity.toLowerCase(),
+    photo: null as File | null,
+    photoUrl: report.photoUrl ?? null as string | null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const full = await WasteService.getWasteById(report.backendId);
+        if (cancelled) return;
+        setFormData((prev) => ({
+          ...prev,
+          category: full.category,
+          district: full.district,
+          location: full.location,
+          description: full.description,
+          quantity: full.quantity,
+          photoUrl: full.photoUrl,
+        }));
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load report details",
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [report.backendId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      let photoUrl = formData.photoUrl;
+      if (formData.photo) {
+        photoUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(formData.photo!);
+        });
+      }
+
+      await WasteService.updateReport(report.backendId, {
+        category: formData.category,
+        district: formData.district,
+        location: formData.location,
+        description: formData.description,
+        quantity: formData.quantity,
+        photoUrl,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update report");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-report-title"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 300,
+        background: "rgba(15,23,42,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          maxHeight: "90vh",
+          overflowY: "auto",
+          background: "#fff",
+          borderRadius: 10,
+          border: "1px solid #dde1e7",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderBottom: "1px solid #eef0f3",
+          }}
+        >
+          <h2
+            id="edit-report-title"
+            style={{
+              margin: 0,
+              fontSize: 16,
+              fontWeight: 800,
+              color: "#1a1e25",
+            }}
+          >
+            Edit {report.id}
+          </h2>
+          <button
+            type="button"
+            aria-label="Close edit dialog"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#6b7a8f",
+              display: "flex",
+              padding: 2,
+            }}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: "32px 16px", textAlign: "center", color: "#8a9099" }}>
+            Loading report…
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            {error && (
+              <div
+                style={{
+                  background: "#fee2e2",
+                  border: "1px solid #fecaca",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  fontSize: 12.5,
+                  color: "#991b1b",
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+              Category
+              <select
+                className="mr-select"
+                value={formData.category}
+                onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
+                required
+              >
+                <option value="" disabled>Select category</option>
+                {wasteCategories.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+              District
+              <select
+                className="mr-select"
+                value={formData.district}
+                onChange={(e) => setFormData((prev) => ({ ...prev, district: e.target.value }))}
+                required
+              >
+                <option value="" disabled>Select district</option>
+                {districts.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+              Location
+              <input
+                className="mr-input"
+                value={formData.location}
+                onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+                required
+              />
+            </label>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+              Description
+              <textarea
+                className="mr-input"
+                value={formData.description}
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                required
+                style={{ resize: "vertical", minHeight: 72 }}
+              />
+            </label>
+
+            <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
+              <legend style={{ fontSize: 12, fontWeight: 700, color: "#1a1e25", marginBottom: 6 }}>
+                Quantity
+              </legend>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {quantitySizes.map((size) => (
+                  <button
+                    key={size.id}
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, quantity: size.id }))}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${formData.quantity === size.id ? "var(--green, #1cb97a)" : "#dde1e7"}`,
+                      background: formData.quantity === size.id ? "rgba(28,185,122,0.08)" : "#fff",
+                      color: "#1a1e25",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {size.label}
+                    <span style={{ display: "block", fontSize: 10.5, fontWeight: 500, color: "#8a9099" }}>
+                      {size.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#1a1e25" }}>
+              Photo (optional)
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setFormData((prev) => ({ ...prev, photo: file }));
+                }}
+                style={{ fontSize: 12 }}
+              />
+              {formData.photoUrl && !formData.photo && (
+                <span style={{ fontSize: 11, color: "#8a9099", fontWeight: 500 }}>
+                  Current photo will be kept unless you upload a new one.
+                </span>
+              )}
+            </label>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                className="mr-action-btn"
+                onClick={onClose}
+                disabled={saving}
+                style={
+                  {
+                    "--ab-color": "#6b7a8f",
+                    "--ab-bg": "#f0f2f5",
+                    "--ab-border": "#dde1e7",
+                  } as React.CSSProperties
+                }
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="mr-action-btn"
+                disabled={saving}
+                style={
+                  {
+                    "--ab-color": "#0f6e56",
+                    "--ab-bg": "#d1fae5",
+                    "--ab-border": "#6ee7b7",
+                  } as React.CSSProperties
+                }
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -847,6 +1227,8 @@ export function MyReportsPage() {
   const [resubmittingReportId, setResubmittingReportId] = useState<
     string | null
   >(null);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const [editingReport, setEditingReport] = useState<Report | null>(null);
   const [rewards, setRewards] = useState<CitizenEcoRewards | null>(null);
 
   // Fetch reports with full lifecycle including compensation
@@ -947,6 +1329,47 @@ export function MyReportsPage() {
       alert(message);
     } finally {
       setResubmittingReportId(null);
+    }
+  };
+
+  const refreshReports = async () => {
+    if (!user?.id) return;
+    const [enriched, eco] = await Promise.all([
+      CompensationService.getCitizenReports(user.id),
+      EcoPointsService.getCitizenRewards(user.id),
+    ]);
+    setReports(enriched);
+    setRewards(eco);
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    const report = reports.find((r) => r.id === reportId);
+    if (!report || report.status !== "pending") return;
+
+    const confirmed = window.confirm(
+      `Delete ${reportId}? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingReportId(reportId);
+    try {
+      await WasteService.deleteReport(report.backendId);
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+      if (expandedId === reportId) setExpandedId(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to delete report.";
+      alert(message);
+    } finally {
+      setDeletingReportId(null);
+    }
+  };
+
+  const handleEditSaved = async () => {
+    try {
+      await refreshReports();
+    } catch (err) {
+      console.error("Failed to refresh reports after edit:", err);
     }
   };
 
@@ -1177,6 +1600,14 @@ export function MyReportsPage() {
         />
       )}
 
+      {editingReport && (
+        <EditReportModal
+          report={editingReport}
+          onClose={() => setEditingReport(null)}
+          onSaved={handleEditSaved}
+        />
+      )}
+
       {/* Pending approval toasters */}
       <div
         style={{
@@ -1364,6 +1795,7 @@ export function MyReportsPage() {
               <option value="collected">Collected / done</option>
               <option value="recycled">Recycled</option>
               <option value="compensated">Compensated</option>
+              <option value="empty">Empty</option>
             </select>
             <ChevronDown
               size={13}
@@ -1585,8 +2017,11 @@ export function MyReportsPage() {
                       onApprove={handleApproveCollection}
                       onRefresh={handleRefreshApprovalStatus}
                       onResubmit={handleResubmitReport}
+                      onEdit={setEditingReport}
+                      onDelete={handleDeleteReport}
                       isRefreshing={refreshingReportId === report.id}
                       isResubmitting={resubmittingReportId === report.id}
+                      isDeleting={deletingReportId === report.id}
                       pointsPerCompensation={pointsPerCompensation}
                     />
                   </div>

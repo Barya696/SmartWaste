@@ -15,6 +15,9 @@ public class SecurityEventService {
     public static final String FAILED_SIGNUP = "FAILED_SIGNUP";
     public static final String BLOCKED_LOGIN = "BLOCKED_LOGIN";
     public static final String SERVER_ERROR = "SERVER_ERROR";
+    public static final String SUCCESSFUL_LOGIN = "SUCCESSFUL_LOGIN";
+    public static final String SUCCESSFUL_SIGNUP = "SUCCESSFUL_SIGNUP";
+    public static final String USER_LOGOUT = "USER_LOGOUT";
 
     private final SecurityEventRepository securityEventRepository;
 

@@ -31,6 +31,15 @@ export interface CreateWasteReportRequest {
   photoUrl: string | null;
 }
 
+export interface UpdateWasteReportRequest {
+  category: string;
+  district: string;
+  location: string;
+  description: string;
+  quantity: string;
+  photoUrl: string | null;
+}
+
 export const WasteService = {
   /**
    * Create a new waste report
@@ -232,6 +241,51 @@ export const WasteService = {
     } catch (error) {
       console.error('[WasteService.updateReportStatus] Error:', error);
       throw error;
+    }
+  },
+
+  /**
+   * Update a pending waste report
+   */
+  updateReport: async (
+    id: number,
+    data: UpdateWasteReportRequest,
+  ): Promise<WasteReport> => {
+    const response = await fetch(`${BASE_URL}/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const message =
+        typeof body?.message === 'string'
+          ? body.message
+          : `Failed to update report: ${response.status}`;
+      throw new Error(message);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Delete a pending waste report
+   */
+  deleteReport: async (id: number): Promise<void> => {
+    const response = await fetch(`${BASE_URL}/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const message =
+        typeof body?.message === 'string'
+          ? body.message
+          : `Failed to delete report: ${response.status}`;
+      throw new Error(message);
     }
   },
 

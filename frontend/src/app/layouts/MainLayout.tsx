@@ -45,11 +45,11 @@ const navigationConfig = {
     { id: "dashboard", path: "/dashboard/citizen", label: "Dashboard", icon: Home },
     { id: "report", path: "/dashboard/citizen/report", label: "Report Waste", icon: FileText },
     { id: "my-reports", path: "/dashboard/citizen/my-reports", label: "My Reports", icon: Package },
+    { id: "credits", path: "/dashboard/citizen/credits", label: "Recycling Credits", icon: Recycle },
   ] as NavItem[],
   collector: [
     { id: "dashboard", path: "/dashboard/collector", label: "Dashboard", icon: Home },
     { id: "tasks", path: "/dashboard/collector/tasks", label: "Collection Tasks", icon: Truck, badge: 3 },
-    { id: "credits", path: "/dashboard/collector/credits", label: "Recycling Credits", icon: Recycle },
   ] as NavItem[],
   "supervisor-waste": [
     { id: "dashboard", path: "/dashboard/supervisor/waste", label: "Dashboard", icon: Home },
@@ -79,7 +79,7 @@ const roleConfig = {
 
 export function MainLayout() {
   // ── All hooks first — no early returns before this block ──
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -121,6 +121,10 @@ export function MainLayout() {
     usePendingApproval(citizenId);
 
   // ── Early return (after ALL hooks) ──
+  if (isLoading) {
+    return null;
+  }
+
   if (!isAuthenticated || !user) {
     return <Navigate to="/" replace />;
   }
@@ -523,7 +527,7 @@ export function MainLayout() {
                   onClick={() => {
                     let profilePath = `/dashboard/${user.role}/profile`;
                     if (user.role === "supervisor") {
-                      profilePath = user.department === "Recycling Operations"
+                      profilePath = user.department === "RECYCLING_OPERATIONS"
                         ? "/dashboard/supervisor/recycling/profile"
                         : "/dashboard/supervisor/waste/profile";
                     }
@@ -534,9 +538,19 @@ export function MainLayout() {
                 >
                   <User size={14} /> Profile
                 </button>
-                <button className="ml-menu-item" role="menuitem" style={{ color: "var(--slate-600)", fontSize: "13.5px", padding: "10px 18px" }}>
-                  <Settings size={14} /> Settings
-                </button>
+                {user.role === "citizen" && (
+                  <button
+                    className="ml-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      navigate("/dashboard/citizen/credits");
+                      setUserMenuOpen(false);
+                    }}
+                    style={{ color: "var(--slate-600)", fontSize: "13.5px", padding: "10px 18px" }}
+                  >
+                    <Settings size={14} /> Recycling Credits
+                  </button>
+                )}
                 <div style={{ height: 1, background: "var(--border-soft)", margin: "4px 0" }} />
                 <button
                   className="ml-menu-item"

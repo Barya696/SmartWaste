@@ -20,8 +20,6 @@ import {
   TrendingUp,
   Recycle,
   Truck,
-  Wind,
-  Leaf,
   Package,
 } from "lucide-react";
 import { AdminMobileBlock } from "../../components/AdminMobileBlock";
@@ -153,22 +151,8 @@ export function AnalyticsPage() {
   const impact = [
     {
       value: data
-        ? `${(data.wasteByCategory.reduce((s, c) => s + c.value, 0) * 0.005).toFixed(1)}t`
-        : "6.4t",
-      label: "CO₂ Reduced",
-      icon: Wind,
-    },
-    {
-      value: data
-        ? String(Math.round(data.wasteByCategory.reduce((s, c) => s + c.value, 0) * 0.7))
-        : "842",
-      label: "Trees Saved",
-      icon: Leaf,
-    },
-    {
-      value: data
-        ? `${data.monthlyTrends.reduce((s, m) => s + m.collected, 0)}`
-        : "8.5t",
+        ? `${data.monthlyTrends.reduce((s, m) => s + m.collected, 0).toLocaleString()}`
+        : "5,034",
       label: "Collections",
       icon: Package,
     },
@@ -188,6 +172,39 @@ export function AnalyticsPage() {
     fontWeight: 700,
     color: "#1a1e25",
     boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+  };
+
+  const exportAnalyticsReport = () => {
+    const lines: string[] = [
+      "SmartWaste Analytics Report",
+      `Generated,${new Date().toISOString()}`,
+      "",
+      "KPI,Value",
+      ...kpis.map((k) => `${k.label},${k.value}`),
+      "",
+      "Month,Reported,Collected,Recycled",
+      ...monthlyTrends.map(
+        (m) => `${m.month},${m.reported},${m.collected},${m.recycled}`,
+      ),
+      "",
+      "Category,Weight (kg)",
+      ...wasteByCategory.map((c) => `${c.name},${c.value}`),
+      "",
+      "District,Collection %,Recycling %,Efficiency %",
+      ...districtPerformance.map(
+        (d) =>
+          `${d.district},${d.collection},${d.recycling},${d.efficiency}`,
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `smartwaste-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -312,17 +329,60 @@ export function AnalyticsPage() {
 
         /* Recharts tick override */
         .recharts-text { font-family: 'Nunito Sans', sans-serif !important; }
+
+        .an-page-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          margin-bottom: 14px;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .an-header-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        @media (max-width: 900px) {
+          .an-two-col { grid-template-columns: 1fr; }
+          .an-three-col { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 700px) {
+          .an-impact-bar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 14px;
+            padding: 14px 16px;
+          }
+          .an-impact-left {
+            padding-right: 0;
+            border-right: none;
+            border-bottom: 1px solid #3e4a5c;
+            padding-bottom: 12px;
+          }
+          .an-impact-stats {
+            flex-wrap: wrap;
+            width: 100%;
+          }
+          .an-impact-stat {
+            flex: 1 1 45%;
+            min-width: 120px;
+            padding: 8px 12px;
+          }
+        }
+        @media (max-width: 480px) {
+          .an-impact-stat {
+            flex: 1 1 100%;
+            border-right: none;
+          }
+          .an-header-actions { width: 100%; }
+          .an-header-actions button { flex: 1; justify-content: center; }
+        }
       `}</style>
 
       {/* Page header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          marginBottom: 14,
-        }}
-      >
+      <div className="an-page-header">
         <div>
           <p
             style={{
@@ -347,7 +407,7 @@ export function AnalyticsPage() {
             Brazzaville
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="an-header-actions">
           <button
             style={{
               display: "inline-flex",
@@ -368,6 +428,8 @@ export function AnalyticsPage() {
             <Calendar size={13} /> Date Range
           </button>
           <button
+            type="button"
+            onClick={exportAnalyticsReport}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -715,24 +777,10 @@ export function AnalyticsPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
               }}
             >
               {[
-                {
-                  label: "CO₂ Reduced",
-                  value: "6.4t",
-                  trend: "+12% vs last month",
-                  color: "#1cb97a",
-                  bg: "#f0faf6",
-                },
-                {
-                  label: "Trees Saved",
-                  value: "842",
-                  trend: "+8% vs last month",
-                  color: "#3b82f6",
-                  bg: "#eff6ff",
-                },
                 {
                   label: "Energy Saved",
                   value: "1,240 kWh",
@@ -742,23 +790,18 @@ export function AnalyticsPage() {
                 },
                 {
                   label: "Recycling Rate",
-                  value: "76%",
+                  value: kpis[1]?.value ?? "76%",
                   trend: "+3% vs last month",
                   color: "#f97316",
                   bg: "#fff7ed",
                 },
-              ].map((item, i) => (
+              ].map((item) => (
                 <div
                   key={item.label}
                   style={{
                     padding: "14px 16px",
                     background: item.bg,
-                    borderRight:
-                      i % 2 === 0
-                        ? "1px solid #eef0f3"
-                        : "none",
-                    borderBottom:
-                      i < 2 ? "1px solid #eef0f3" : "none",
+                    borderBottom: "1px solid #eef0f3",
                   }}
                 >
                   <p

@@ -2,7 +2,7 @@ package com.smartWaste.project.controller;
 
 import com.smartWaste.project.dto.CompensationRequest;
 import com.smartWaste.project.model.Compensation;
-import com.smartWaste.project.model.MaterialPrice;
+import com.smartWaste.project.model.WasteCategory;
 import com.smartWaste.project.model.ShareConfig;
 import com.smartWaste.project.model.TaxConfig;
 import com.smartWaste.project.repository.*;
@@ -22,7 +22,7 @@ public class CompensationController {
     private final CompensationRepository compensationRepository;
     private final TaxConfigRepository taxConfigRepository;
     private final ShareConfigRepository shareConfigRepository;
-    private final MaterialPriceRepository materialPriceRepository;
+    private final WasteCategoryRepository wasteCategoryRepository;
 
     @PostMapping
     public ResponseEntity<?> compensate(@RequestBody CompensationRequest request) {
@@ -55,10 +55,10 @@ public class CompensationController {
                 if ("System".equals(sc.getShareName())) systemPct = sc.getPercentage();
             }
 
-            // 3. Load material price map
+            // 3. Load material price map from waste_category
             Map<String, Double> priceMap = new HashMap<>();
-            for (MaterialPrice mp : materialPriceRepository.findAll()) {
-                priceMap.put(mp.getMaterialName().toLowerCase(), mp.getPricePerKg());
+            for (WasteCategory wc : wasteCategoryRepository.findAllByActiveTrueOrderByNameAsc()) {
+                priceMap.put(wc.getName().toLowerCase(), wc.getPricePerKg());
             }
 
             // 4. Compute gross per material line + breakdown

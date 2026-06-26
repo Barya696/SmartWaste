@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Users,
   Search,
@@ -8,12 +8,12 @@ import {
   Trash2,
   Shield,
   Award,
-  CheckCircle,
-  XCircle,
   Gift,
   ChevronDown,
   Lock,
   Unlock,
+  Star,
+  TrendingUp,
 } from "lucide-react";
 import { AdminMobileBlock } from "../../components/AdminMobileBlock";
 import { UserFormModal } from "../../components/UserFormModal";
@@ -28,7 +28,7 @@ export function UserManagementPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [activeTab, setActiveTab] = useState<
-    "users" | "ecopoints"
+    "users" | "compensation"
   >("users");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +36,7 @@ export function UserManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | undefined>(undefined);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [compensationSearch, setCompensationSearch] = useState("");
   const [compensations, setCompensations] = useState<
     {
       id: number;
@@ -46,6 +47,7 @@ export function UserManagementPage() {
       submittedDate: string;
       status: string;
       district: string;
+      citizenId: number;
     }[]
   >([]);
   const [materialPrices, setMaterialPrices] = useState<
@@ -54,10 +56,10 @@ export function UserManagementPage() {
 
   useEffect(() => {
     fetchUsers();
-    loadEcoData();
+    loadCompensationData();
   }, []);
 
-  const loadEcoData = async () => {
+  const loadCompensationData = async () => {
     try {
       const [comps, prices, allUsers] = await Promise.all([
         AdminService.getCompensations(),
@@ -71,13 +73,13 @@ export function UserManagementPage() {
       setCompensations(
         comps.map((c) => {
           const citizen = userMap.get(c.citizenId);
-          const ptsPerKg = prices[c.materialType?.split(",")[0]?.trim()] ?? 10;
           return {
             id: c.id,
+            citizenId: c.citizenId,
             citizenName: citizen ? getDisplayName(citizen) : "Unknown",
             wasteType: c.materialType,
             quantity: `${c.weightKg} kg`,
-            pointsRequested: Math.round(c.citizenAmount ?? c.weightKg * ptsPerKg),
+            pointsRequested: Math.round(c.citizenAmount ?? 0),
             submittedDate: c.createdAt
               ? formatDateTime(c.createdAt).split(",")[0]
               : "—",
@@ -87,7 +89,7 @@ export function UserManagementPage() {
         }),
       );
     } catch (err) {
-      console.error("Failed to load eco points data:", err);
+      console.error("Failed to load compensation data:", err);
     }
   };
 
@@ -209,7 +211,40 @@ export function UserManagementPage() {
     },
   ];
 
-  const ecoPointRequests: typeof compensations = [];
+  // Aggregate compensation per citizen
+  const citizenCompensation = useMemo(() => {
+    const map = new Map<string, {
+      name: string; district: string; totalCompensated: number;
+      transactions: number; wasteTypes: Set<string>;
+    }>();
+    for (const c of compensations) {
+      const key = c.citizenName;
+      if (!map.has(key)) {
+        map.set(key, { name: c.citizenName, district: c.district, totalCompensated: 0, transactions: 0, wasteTypes: new Set() });
+      }
+      const entry = map.get(key)!;
+      entry.totalCompensated += c.pointsRequested;
+      entry.transactions += 1;
+      if (c.wasteType) entry.wasteTypes.add(c.wasteType.split(",")[0].trim());
+    }
+    return Array.from(map.values())
+      .sort((a, b) => b.totalCompensated - a.totalCompensated)
+      .map((e, i) => ({ ...e, rank: i + 1, wasteTypes: Array.from(e.wasteTypes) }));
+  }, [compensations]);
+
+  const filteredCitizenCompensation = useMemo(() => {
+    const q = compensationSearch.toLowerCase();
+    return citizenCompensation.filter(
+      (c) => !q || c.name.toLowerCase().includes(q) || c.district.toLowerCase().includes(q)
+    );
+  }, [citizenCompensation, compensationSearch]);
+
+  function getRankBadge(rank: number, pts: number) {
+    if (pts >= 5000) return { label: "Gold", color: "#d97706", bg: "#fffbeb", border: "#fcd34d" };
+    if (pts >= 1000) return { label: "Silver", color: "#4b5563", bg: "#f9fafb", border: "#d1d5db" };
+    if (pts >= 200)  return { label: "Bronze", color: "#92400e", bg: "#fef3c7", border: "#fbbf24" };
+    return { label: "Starter", color: "#1e40af", bg: "#eff6ff", border: "#93c5fd" };
+  }
 
   const wasteTypePoints = Object.entries(materialPrices).map(
     ([type, pointsPerKg], i) => ({
@@ -458,8 +493,7 @@ export function UserManagementPage() {
               fontWeight: 500,
             }}
           >
-            Manage system users, permissions, and eco points
-            rewards
+            Manage system users, permissions, and compensation rewards
           </p>
         </div>
         {activeTab === "users" && (
@@ -478,10 +512,10 @@ export function UserManagementPage() {
           Users
         </button>
         <button
-          className={`um-tab${activeTab === "ecopoints" ? " active" : ""}`}
-          onClick={() => setActiveTab("ecopoints")}
+          className={`um-tab${activeTab === "compensation" ? " active" : ""}`}
+          onClick={() => setActiveTab("compensation")}
         >
-          Eco Points &amp; Rewards
+          Compensation
         </button>
       </div>
 
@@ -838,298 +872,162 @@ export function UserManagementPage() {
           </>
         ) : (
           <>
-            <div className="um-two-col">
-              {/* Eco Point Requests */}
-              <div className="um-card">
-                <div className="um-card-header">
-                  <div>
-                    <div className="um-card-title">
-                      Eco Point Requests
-                    </div>
-                    <div className="um-card-subtitle">
-                      {
-                        compensations.filter(
-                          (r) => r.status === "pending",
-                        ).length
-                      }{" "}
-                      pending approval
-                    </div>
-                  </div>
-                  <Award size={14} color="#1cb97a" />
-                </div>
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                  }}
-                >
-                  {ecoPointRequests
-                    .filter((r) => r.status === "pending")
-                    .length === 0 ? (
-                    <p style={{ fontSize: 12, color: "#aab0bb", textAlign: "center", padding: 16 }}>
-                      No pending eco point requests. Approved compensations appear in Recent Approvals.
-                    </p>
-                  ) : (
-                  ecoPointRequests
-                    .filter((r) => r.status === "pending")
-                    .map((req) => (
-                      <div
-                        className="um-request-card"
-                        key={req.id}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <div>
-                            <div
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 800,
-                                color: "#1a1e25",
-                                marginBottom: 2,
-                              }}
-                            >
-                              {req.citizenName}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 11,
-                                color: "#aab0bb",
-                                fontWeight: 600,
-                              }}
-                            >
-                              {req.district}
-                            </div>
-                          </div>
-                          <span
-                            style={{
-                              fontSize: 18,
-                              fontWeight: 800,
-                              color: "#7c3aed",
-                              letterSpacing: "-0.02em",
-                            }}
-                          >
-                            +{req.pointsRequested}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#6b7a8f",
-                            fontWeight: 600,
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontWeight: 700,
-                              color: "#1a1e25",
-                            }}
-                          >
-                            {req.wasteType}
-                          </span>{" "}
-                          · {req.quantity}
-                          <br />
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: "#aab0bb",
-                            }}
-                          >
-                            {req.submittedDate}
-                          </span>
-                        </div>
-                        <div
-                          style={{ display: "flex", gap: 6 }}
-                        >
-                          <button className="um-approve-btn">
-                            <CheckCircle size={12} /> Approve
-                          </button>
-                          <button className="um-reject-btn">
-                            <XCircle size={12} /> Reject
-                          </button>
-                        </div>
+            {/* Compensation stats */}
+            <div className="um-stats-grid">
+              {[
+                {
+                  label: "Citizens with Compensation",
+                  value: String(citizenCompensation.length),
+                  icon: Users,
+                  gradFrom: "#60a5fa", gradTo: "#3b82f6",
+                  sub: "earned compensation",
+                },
+                {
+                  label: "Total Compensation Issued",
+                  value: citizenCompensation.reduce((s, c) => s + c.totalCompensated, 0).toLocaleString() + " XAF",
+                  icon: Award,
+                  gradFrom: "#34d9a0", gradTo: "#1cb97a",
+                  sub: "across all citizens",
+                },
+                {
+                  label: "Avg Compensation / Citizen",
+                  value: citizenCompensation.length
+                    ? Math.round(citizenCompensation.reduce((s, c) => s + c.totalCompensated, 0) / citizenCompensation.length).toLocaleString() + " XAF"
+                    : "0 XAF",
+                  icon: TrendingUp,
+                  gradFrom: "#c084fc", gradTo: "#a855f7",
+                  sub: "per active citizen",
+                },
+                {
+                  label: "Top Earner",
+                  value: (citizenCompensation[0]?.totalCompensated ?? 0).toLocaleString() + " XAF",
+                  icon: Star,
+                  gradFrom: "#fb923c", gradTo: "#f97316",
+                  sub: citizenCompensation[0]?.name ?? "—",
+                },
+              ].map((s) => {
+                const Icon = s.icon;
+                return (
+                  <div className="um-stat-card" key={s.label}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
+                      <div className="um-stat-icon" style={{ background: `linear-gradient(135deg, ${s.gradFrom}, ${s.gradTo})` }}>
+                        <Icon size={22} color="#fff" strokeWidth={2} />
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Point Values */}
-              <div className="um-card">
-                <div className="um-card-header">
-                  <div>
-                    <div className="um-card-title">
-                      Point Values
+                      <div>
+                        <div className="um-stat-label">{s.label}</div>
+                        <div className="um-stat-value">{s.value}</div>
+                      </div>
                     </div>
-                    <div className="um-card-subtitle">
-                      Points awarded per kg by waste type
-                    </div>
+                    <div className="um-stat-trend">↑ {s.sub}</div>
                   </div>
-                  <Gift size={14} color="#8b5cf6" />
-                </div>
-                {wasteTypePoints.length === 0 ? (
-                  <p style={{ padding: 16, fontSize: 12, color: "#aab0bb" }}>
-                    Loading point values from material prices...
-                  </p>
-                ) : (
-                wasteTypePoints.map((wt) => (
-                  <div className="um-pts-row" key={wt.type}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 9,
-                      }}
-                    >
-                      <div
-                        className="um-type-dot"
-                        style={{ background: wt.color }}
-                      />
-                      <span
-                        style={{
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                          color: "#1a1e25",
-                        }}
-                      >
-                        {wt.type}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                          color: wt.color,
-                        }}
-                      >
-                        {wt.pointsPerKg} pts/kg
-                      </span>
-                      <button className="um-edit-btn">
-                        <Edit size={11} color="#9aa0ac" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-                )}
-              </div>
+                );
+              })}
             </div>
 
-            {/* Recent Approvals table */}
+            {/* Search + table */}
             <div className="um-card">
               <div className="um-card-header">
                 <div>
-                  <div className="um-card-title">
-                    Recent Approvals
-                  </div>
-                  <div className="um-card-subtitle">
-                    Eco points awarded to citizens
-                  </div>
+                  <div className="um-card-title">Compensation per Citizen</div>
+                  <div className="um-card-subtitle">Total accumulated compensation ranked highest to lowest</div>
                 </div>
-                <span className="um-count">
-                  {
-                    compensations.filter(
-                      (r) => r.status === "approved",
-                    ).length
-                  }{" "}
-                  records
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="um-search-wrap" style={{ width: 220 }}>
+                    <Search size={13} className="um-search-icon" />
+                    <input
+                      type="text" className="um-input"
+                      placeholder="Search citizen or district…"
+                      value={compensationSearch}
+                      onChange={(e) => setCompensationSearch(e.target.value)}
+                    />
+                  </div>
+                  <span className="um-count">{filteredCitizenCompensation.length} citizens</span>
+                </div>
               </div>
-              <table className="um-table">
-                <thead>
-                  <tr>
-                    {[
-                      "Citizen",
-                      "Waste Type",
-                      "Quantity",
-                      "Points",
-                      "Date",
-                      "Status",
-                    ].map((h) => (
-                      <th key={h} className="um-th">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {compensations
-                    .filter((r) => r.status === "approved")
-                    .map((req) => (
-                      <tr key={req.id} className="um-tr">
-                        <td
-                          className="um-td"
-                          style={{ fontWeight: 700 }}
-                        >
-                          {req.citizenName}
-                        </td>
-                        <td
-                          className="um-td"
-                          style={{
-                            color: "#6b7a8f",
-                            fontSize: 12,
-                          }}
-                        >
-                          {req.wasteType}
-                        </td>
-                        <td
-                          className="um-td"
-                          style={{
-                            color: "#6b7a8f",
-                            fontSize: 12,
-                          }}
-                        >
-                          {req.quantity}
-                        </td>
-                        <td
-                          className="um-td"
-                          style={{
-                            fontWeight: 800,
-                            color: "#1cb97a",
-                          }}
-                        >
-                          +{req.pointsRequested}
-                        </td>
-                        <td
-                          className="um-td"
-                          style={{
-                            color: "#aab0bb",
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {req.submittedDate}
-                        </td>
-                        <td className="um-td">
-                          <span
-                            style={{
-                              fontSize: 10.5,
-                              fontWeight: 800,
-                              color: "#1cb97a",
-                              letterSpacing: "0.03em",
-                              textTransform: "uppercase",
-                            }}
-                          >
-                            Approved
-                          </span>
-                        </td>
+
+              {filteredCitizenCompensation.length === 0 ? (
+                <div className="um-empty">
+                  <Award size={40} color="#aab0bb" style={{ margin: "0 auto 10px", display: "block", opacity: 0.4 }} />
+                  <p style={{ margin: 0, fontSize: 13, color: "#aab0bb" }}>
+                    {compensationSearch ? "No citizens match your search." : "No compensation records yet."}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="um-table">
+                    <thead>
+                      <tr>
+                        {["Rank", "Citizen", "District", "Total compensated (in XAF)", "Transactions", "Waste Types", "Badge"].map((h) => (
+                          <th key={h} className="um-th">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {filteredCitizenCompensation.map((c) => {
+                        const badge = getRankBadge(c.rank, c.totalCompensated);
+                        return (
+                          <tr key={c.name} className="um-tr">
+                            <td className="um-td">
+                              <span style={{
+                                fontWeight: 800, fontSize: 13,
+                                color: c.rank <= 3 ? "#d97706" : "#9aa0ac",
+                              }}>#{c.rank}</span>
+                            </td>
+                            <td className="um-td">
+                              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                                <div className="um-avatar" style={{
+                                  background: c.rank === 1 ? "linear-gradient(135deg,#fcd34d,#f59e0b)" :
+                                    c.rank === 2 ? "linear-gradient(135deg,#d1d5db,#9ca3af)" :
+                                    c.rank === 3 ? "linear-gradient(135deg,#fbbf24,#92400e)" : "#f0f2f5",
+                                  color: c.rank <= 3 ? "#fff" : "#6b7a8f",
+                                }}>
+                                  {c.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
+                                </div>
+                                <span style={{ fontWeight: 700, fontSize: 12.5 }}>{c.name}</span>
+                              </div>
+                            </td>
+                            <td className="um-td" style={{ fontSize: 12, color: "#6b7a8f", fontWeight: 600 }}>
+                              {c.district}
+                            </td>
+                            <td className="um-td">
+                              <span style={{ fontWeight: 800, fontSize: 15, color: "#1cb97a", letterSpacing: "-0.02em" }}>
+                                {c.totalCompensated.toLocaleString()}
+                              </span>
+                              <span style={{ fontSize: 11, color: "#9aa0ac", marginLeft: 3 }}>XAF</span>
+                            </td>
+                            <td className="um-td" style={{ fontWeight: 700, fontSize: 12.5 }}>
+                              {c.transactions}
+                            </td>
+                            <td className="um-td">
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                                {c.wasteTypes.map((wt: string) => (
+                                  <span key={wt} style={{
+                                    fontSize: 10, fontWeight: 700, background: "#f0f2f5",
+                                    color: "#4a5568", borderRadius: 4, padding: "2px 6px",
+                                    border: "1px solid #dde1e7",
+                                  }}>{wt}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="um-td">
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                fontSize: 10.5, fontWeight: 800, letterSpacing: "0.03em",
+                                color: badge.color, background: badge.bg,
+                                border: `1px solid ${badge.border}`,
+                                borderRadius: 4, padding: "3px 8px",
+                              }}>
+                                {badge.label === "Gold" && <Star size={9} />}
+                                {badge.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </>
         )}

@@ -14,6 +14,7 @@ import {
   ZoomIn,
   ChevronRight,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
@@ -30,7 +31,8 @@ interface BackendAssignment {
     | "COMPLETED"
     | "REJECTED"
     | "PENDING_CITIZEN_APPROVAL"
-    | "RECYCLED";
+    | "RECYCLED"
+    | "EMPTY";
   assignmentDate: string;
   notes: string;
   createdAt: string;
@@ -64,7 +66,8 @@ type TaskStatus =
   | "pending_approval"
   | "collected"
   | "recycled"
-  | "compensated";
+  | "compensated"
+  | "empty";
 
 type Task = {
   id: string;
@@ -94,10 +97,11 @@ const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   collected: "Collected",
   recycled: "Recycled",
   compensated: "Compensated",
+  empty: "Empty",
 };
 
 function isTerminalStatus(status: TaskStatus): boolean {
-  return status === "collected" || status === "recycled" || status === "compensated";
+  return status === "collected" || status === "recycled" || status === "compensated" || status === "empty";
 }
 
 async function fetchCompensatedAssignmentIds(): Promise<Set<number>> {
@@ -192,6 +196,8 @@ function mapAssignmentStatus(
       return "collected";
     case "RECYCLED":
       return "recycled";
+    case "EMPTY":
+      return "empty";
     case "REJECTED":
       return "assigned";
     default:
@@ -219,6 +225,7 @@ function mapQuantity(quantity: string): string {
 
 async function patchAssignmentStatus(assignmentId: number, status: string): Promise<boolean> {
   try {
+    console.log(`Sending request to update assignment ${assignmentId} to ${status}`);
     const response = await fetch(
       `http://localhost:8080/api/assignments/${assignmentId}/status`,
       {
@@ -228,11 +235,21 @@ async function patchAssignmentStatus(assignmentId: number, status: string): Prom
         body: JSON.stringify({ status }),
       }
     );
+    console.log(`Response status: ${response.status}, response ok: ${response.ok}`);
     if (!response.ok) {
-      console.error(`Failed to update assignment ${assignmentId} to ${status}:`, response.status);
+      let errorText = "";
+      try {
+        const errorData = await response.json();
+        console.error("Error response data:", errorData);
+        errorText = errorData.message || response.statusText;
+      } catch (e) {
+        errorText = await response.text();
+      }
+      console.error(`Failed to update assignment ${assignmentId} to ${status}:`, errorText);
       return false;
     }
-    console.log(`Successfully updated assignment ${assignmentId} to ${status}`);
+    const data = await response.json();
+    console.log(`Successfully updated assignment ${assignmentId} to ${status}:`, data);
     return true;
   } catch (error) {
     console.error(`Error updating assignment ${assignmentId}:`, error);
@@ -283,27 +300,28 @@ export function CollectionTasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshingTaskId, setRefreshingTaskId] = useState<string | null>(null);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [markingEmptyId, setMarkingEmptyId] = useState<string | null>(null);
+
+  const loadAssignments = async () => {
+    if (!user?.id) {
+      setError("User not authenticated");
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const assignedTasks = await fetchAssignmentsForCollector(user.id);
+      setTasks(assignedTasks);
+      setError(null);
+    } catch (err) {
+      console.error("Error loading assignments:", err);
+      setError("Failed to load assignments");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadAssignments() {
-      if (!user?.id) {
-        setError("User not authenticated");
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const assignedTasks = await fetchAssignmentsForCollector(user.id);
-        setTasks(assignedTasks);
-        setError(null);
-      } catch (err) {
-        console.error("Error loading assignments:", err);
-        setError("Failed to load assignments");
-      } finally {
-        setLoading(false);
-      }
-    }
-
     loadAssignments();
   }, [user?.id]);
 
@@ -374,6 +392,53 @@ export function CollectionTasksPage() {
       }
     } finally {
       setCompletingTaskId(null);
+    }
+  };
+
+  const handleMarkAsEmptyFromList = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task?.assignmentId) {
+      console.error(`No assignmentId for task ${taskId}`);
+      setError("Failed to mark as empty: Missing assignment ID");
+      return;
+    }
+
+    setMarkingEmptyId(taskId);
+    try {
+      const success = await patchAssignmentStatus(task.assignmentId, "EMPTY");
+      if (success) {
+        // Optimistic UI update only if API call succeeded
+        setTaskStatuses((prev) => ({ ...prev, [taskId]: "empty" }));
+        setError(null);
+      } else {
+        setError("Failed to mark task as empty. Please try again.");
+      }
+    } finally {
+      setMarkingEmptyId(null);
+    }
+  };
+
+  const handleMarkAsEmptyFromDetail = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task?.assignmentId) {
+      console.error(`No assignmentId for task ${taskId}`);
+      setError("Failed to mark as empty: Missing assignment ID");
+      return;
+    }
+
+    setMarkingEmptyId(taskId);
+    try {
+      const success = await patchAssignmentStatus(task.assignmentId, "EMPTY");
+      if (success) {
+        // Optimistic UI update only if API call succeeded
+        setTaskStatuses((prev) => ({ ...prev, [taskId]: "empty" }));
+        setError(null);
+      } else {
+        setError("Failed to mark task as empty. Please try again.");
+      }
+    } finally {
+      setMarkingEmptyId(null);
     }
   };
 
@@ -922,38 +987,75 @@ export function CollectionTasksPage() {
                   )}
                 </button>
               ) : (
-                <button
-                  className="ct-btn ct-btn-complete"
-                  onClick={() => handleCompleteFromDetail(detailWithStatus.id)}
-                  disabled={completingTaskId === detailWithStatus.id}
-                  style={{
-                    opacity: completingTaskId === detailWithStatus.id ? 0.6 : 1,
-                    cursor: completingTaskId === detailWithStatus.id ? "wait" : "pointer",
-                  }}
-                >
-                  {completingTaskId === detailWithStatus.id ? (
-                    <>
-                      <div
-                        style={{
-                          display: "inline-block",
-                          width: 10,
-                          height: 10,
-                          border: "2px solid #fff",
-                          borderTop: "2px solid rgba(255,255,255,0.3)",
-                          borderRadius: "50%",
-                          animation: "spin 0.6s linear infinite",
-                        }}
-                        aria-hidden="true"
-                      />
-                      Marking...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle size={12} aria-hidden="true" />
-                      Mark as Complete
-                    </>
-                  )}
-                </button>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    className="ct-btn ct-btn-complete"
+                    onClick={() => handleCompleteFromDetail(detailWithStatus.id)}
+                    disabled={completingTaskId === detailWithStatus.id}
+                    style={{
+                      opacity: completingTaskId === detailWithStatus.id ? 0.6 : 1,
+                      cursor: completingTaskId === detailWithStatus.id ? "wait" : "pointer",
+                    }}
+                  >
+                    {completingTaskId === detailWithStatus.id ? (
+                      <>
+                        <div
+                          style={{
+                            display: "inline-block",
+                            width: 10,
+                            height: 10,
+                            border: "2px solid #fff",
+                            borderTop: "2px solid rgba(255,255,255,0.3)",
+                            borderRadius: "50%",
+                            animation: "spin 0.6s linear infinite",
+                          }}
+                          aria-hidden="true"
+                        />
+                        Marking...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={12} aria-hidden="true" />
+                        Mark as Complete
+                      </>
+                    )}
+                  </button>
+                  <button
+                    className="ct-btn"
+                    onClick={() => handleMarkAsEmptyFromDetail(detailWithStatus.id)}
+                    disabled={markingEmptyId === detailWithStatus.id}
+                    style={{
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      color: "#475569",
+                      opacity: markingEmptyId === detailWithStatus.id ? 0.6 : 1,
+                      cursor: markingEmptyId === detailWithStatus.id ? "wait" : "pointer",
+                    }}
+                  >
+                    {markingEmptyId === detailWithStatus.id ? (
+                      <>
+                        <div
+                          style={{
+                            display: "inline-block",
+                            width: 10,
+                            height: 10,
+                            border: "2px solid #475569",
+                            borderTop: "2px solid rgba(71,85,105,0.3)",
+                            borderRadius: "50%",
+                            animation: "spin 0.6s linear infinite",
+                          }}
+                          aria-hidden="true"
+                        />
+                        Marking...
+                      </>
+                    ) : (
+                      <>
+                        <Package size={12} aria-hidden="true" />
+                        Mark as Empty
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1023,6 +1125,7 @@ export function CollectionTasksPage() {
                   <option value="collected">Collected</option>
                   <option value="recycled">Recycled</option>
                   <option value="compensated">Compensated</option>
+                  <option value="empty">Empty</option>
                   <option value="done">Completed (all done)</option>
                 </select>
                 <ChevronDown
@@ -1103,7 +1206,25 @@ export function CollectionTasksPage() {
                   style={{ opacity: 0.4, marginBottom: "12px" }}
                   aria-hidden="true"
                 />
-                <p style={{ margin: "8px 0 0" }}>No tasks assigned yet. Check back soon!</p>
+                <p style={{ margin: "8px 0 16px" }}>No tasks assigned yet. Check back soon!</p>
+                <button
+                  onClick={loadAssignments}
+                  disabled={loading}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "40px",
+                    height: "40px",
+                    border: "1px solid #dde1e7",
+                    borderRadius: "8px",
+                    background: "#fff",
+                    cursor: "pointer",
+                  }}
+                  aria-label="Refresh tasks"
+                >
+                  <RefreshCw size={18} color="#6b7a8f" />
+                </button>
               </div>
             )}
 
@@ -1209,39 +1330,80 @@ export function CollectionTasksPage() {
                           )}
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          className="ct-btn ct-btn-complete"
-                          onClick={(e) => handleCompleteFromList(task.id, e)}
-                          disabled={completingTaskId === task.id}
-                          style={{
-                            opacity: completingTaskId === task.id ? 0.6 : 1,
-                            cursor: completingTaskId === task.id ? "wait" : "pointer",
-                          }}
-                        >
-                          {completingTaskId === task.id ? (
-                            <>
-                              <div
-                                style={{
-                                  display: "inline-block",
-                                  width: 10,
-                                  height: 10,
-                                  border: "2px solid #fff",
-                                  borderTop: "2px solid rgba(255,255,255,0.3)",
-                                  borderRadius: "50%",
-                                  animation: "spin 0.6s linear infinite",
-                                }}
-                                aria-hidden="true"
-                              />
-                              Marking...
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle size={12} aria-hidden="true" />
-                              Complete
-                            </>
-                          )}
-                        </button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <button
+                            type="button"
+                            className="ct-btn ct-btn-complete"
+                            onClick={(e) => handleCompleteFromList(task.id, e)}
+                            disabled={completingTaskId === task.id}
+                            style={{
+                              opacity: completingTaskId === task.id ? 0.6 : 1,
+                              cursor: completingTaskId === task.id ? "wait" : "pointer",
+                            }}
+                          >
+                            {completingTaskId === task.id ? (
+                              <>
+                                <div
+                                  style={{
+                                    display: "inline-block",
+                                    width: 10,
+                                    height: 10,
+                                    border: "2px solid #fff",
+                                    borderTop: "2px solid rgba(255,255,255,0.3)",
+                                    borderRadius: "50%",
+                                    animation: "spin 0.6s linear infinite",
+                                  }}
+                                  aria-hidden="true"
+                                />
+                                Marking...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle size={12} aria-hidden="true" />
+                                Complete
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="ct-btn"
+                            onClick={(e) => handleMarkAsEmptyFromList(task.id, e)}
+                            disabled={markingEmptyId === task.id}
+                            style={{
+                              background: "#f8fafc",
+                              border: "1px solid #e2e8f0",
+                              color: "#475569",
+                              fontSize: "11px",
+                              padding: "4px 10px",
+                              minHeight: "30px",
+                              opacity: markingEmptyId === task.id ? 0.6 : 1,
+                              cursor: markingEmptyId === task.id ? "wait" : "pointer",
+                            }}
+                          >
+                            {markingEmptyId === task.id ? (
+                              <>
+                                <div
+                                  style={{
+                                    display: "inline-block",
+                                    width: 8,
+                                    height: 8,
+                                    border: "2px solid #475569",
+                                    borderTop: "2px solid rgba(71,85,105,0.3)",
+                                    borderRadius: "50%",
+                                    animation: "spin 0.6s linear infinite",
+                                  }}
+                                  aria-hidden="true"
+                                />
+                                Marking...
+                              </>
+                            ) : (
+                              <>
+                                <Package size={10} aria-hidden="true" />
+                                Empty
+                              </>
+                            )}
+                          </button>
+                        </div>
                       )}
                       <span className="ct-chevron" aria-hidden="true">
                         <ChevronRight size={14} />
